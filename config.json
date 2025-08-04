@@ -1,0 +1,32 @@
+{
+    "name": "Re-order visits",
+    "namespace": "UNILE\\Revisits", 
+    "description": "Allows to re-order visits based on a field (usually visit_date).",
+    "documentation": "README.md",
+    "authors": [
+        {
+             "name": "Christof Meigen",
+             "email": "christof.meigen@medizin.uni-leipzig.de",
+             "institution": "University of Leipzig"
+         }
+     ],
+    "links":{
+				"project": [
+						{
+								"name": "Reorder Visits",
+								"icon": "report",
+								"url": "reorder",
+								"show-header-and-footer": true
+						}
+				]
+
+		},
+    "project-settings": [
+        {
+            "key": "visitdate-field",
+            "type": "field-list",
+            "name": "Field the reordering should be based on (usually visit_date)",
+						"repeatable": true
+        }
+    ]
+}
