@@ -32,6 +32,24 @@ HTML;
     $affected_rows = array();
     $blank_notices = array();
     foreach ($module->getProjectSetting('visitdate-field') as $visitdateFieldName) {
+       // Only date and datetime fields may be used. REDCap stores those as YYYY-MM-DD[ HH:MM[:SS]]
+       // regardless of the display format, so the plain string sort below is chronological.
+       // For any other field type the sort would be lexical and therefore meaningless
+       // ('10' < '2' < '9'). The config.json field-list is filtered to date fields as well,
+       // but a setting stored before that filter existed would not be re-validated.
+       $q = $module->query("select element_validation_type from redcap_metadata
+                            where project_id = ? and field_name = ?", [$pid, $visitdateFieldName]);
+       $validationType = $q->fetch_row()[0] ?? null;
+       if ($validationType === null) {
+           $errors[] = "$visitdateFieldName: field does not exist in this project - skipped";
+           continue;
+       }
+       if (strpos($validationType, 'date') !== 0) {
+           $errors[] = "$visitdateFieldName: not a date or datetime field"
+                     . " (validation type '" . ($validationType === '' ? 'none' : $validationType) . "') - skipped";
+           continue;
+       }
+
        // All instances that actually exist in the repeating group the date field belongs to,
        // with the date value attached via LEFT JOIN. Enumerating the instances from the date
        // field itself (as this module used to do) silently skips instances where the date is
@@ -93,7 +111,9 @@ HTML;
            $query->execute();
            $affected_rows[] = $visitdateFieldName . ": " . $query->affected_rows;
        } catch (\Throwable $e) {
-           $errors[] = $visitdateFieldName . ": " . $e->getMessage();
+           $errors[] = $visitdateFieldName . ": " . $e->getMessage()
+                     . " (if this is a SQL error, check that your MySQL/MariaDB version supports"
+                     . " window functions - MySQL 8.0 / MariaDB 10.2 and above)";
        }
     }
     echo "<h2>Re-Order visits</h2>";
@@ -106,8 +126,6 @@ HTML;
     }
     if (!empty($errors)) {
         echo "<br><br>Sorry, some errors occured:<br>" . implode('<br>', $errors);
-				echo "It's most likely that your MySQL/MariaDB version does not support window functions, " .
-						 " whch are available since version 8.0";
     }
 }
 

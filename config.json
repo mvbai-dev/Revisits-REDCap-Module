@@ -26,7 +26,8 @@
         {
             "key": "visitdate-field",
             "type": "field-list",
-            "name": "Field the reordering should be based on (usually visit_date)",
+            "validation": "date",
+            "name": "Date field the reordering should be based on (e.g. visit_date). Only date and datetime fields can be selected.",
 						"repeatable": true
         }
     ]
