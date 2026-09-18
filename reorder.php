@@ -19,8 +19,8 @@ if($_SERVER['REQUEST_METHOD'] != 'POST'){ // show form as a simple button
 				   on the field names above. Instruments/events which contain none of these fields should not be 
            affected. If a repeatable event contains several of these fields, the last one wins (but you should not rely on that).
 					 <br>Instances with no value in the date field are sorted to the end, keeping their relative order.
-					 <br>WARNING: This reordering does not show up in the Log and cannot be undone 
-					 (apart from restoring a backup)!</p>
+					 <br>The reordering is written to the project Logging page (one entry per record and event),
+					 but it still cannot be undone automatically - restoring a backup is the only way back!</p>
 HTML;
     }
 } else { // user clicked the button...
@@ -31,6 +31,7 @@ HTML;
     $errors = array();
     $affected_rows = array();
     $blank_notices = array();
+    $log_notices = array();
     foreach ($module->getProjectSetting('visitdate-field') as $visitdateFieldName) {
        // Only date and datetime fields may be used. REDCap stores those as YYYY-MM-DD[ HH:MM[:SS]]
        // regardless of the display format, so the plain string sort below is chronological.
@@ -80,6 +81,16 @@ HTML;
        ";
        $scope_params = [$visitdateFieldName, $pid, $pid, $visitdateFieldName];
 
+       // The new numbering. Defined once so that the logging query below and the UPDATE
+       // can never disagree about what is going to change.
+       $numbered_sql = "
+            select s.record, s.event_id, s.instance, s.form_name,
+             nullif(row_number() over (partition by s.record, s.event_id
+                    order by (s.visitdate is null or s.visitdate = ''), s.visitdate,
+                             coalesce(s.instance, 1)), 1) as new_instance
+            from ($scope_sql) s
+       ";
+
        try {
            // Report how many instances are being sorted to the end for lack of a date.
            $q = $module->query("select count(*) from ($scope_sql) s
@@ -89,14 +100,27 @@ HTML;
                $blank_notices[] = "$visitdateFieldName: $blanks instance(s) without a date value were sorted to the end";
            }
 
+           // Collect what is about to change, grouped by record and event, so that the
+           // reordering can be written to the project log. This has to happen before the
+           // UPDATE, because afterwards the old numbering is gone.
+           $moves = array();
+           $q = $module->query("
+                select n.record, n.event_id,
+                       coalesce(n.instance, 1) as old_instance,
+                       coalesce(n.new_instance, 1) as new_instance
+                from ($numbered_sql) n
+                where coalesce(n.instance, -1) != coalesce(n.new_instance, -1)
+                order by n.record, old_instance
+           ", $scope_params);
+           while ($row = $q->fetch_assoc()) {
+               $moves[$row['record'] . "\x1f" . $row['event_id']][] =
+                   $row['old_instance'] . " -> " . $row['new_instance'];
+           }
+
            $query = $module->createQuery();
            $query->add("
             update $dataTable d inner join
-            (select s.record, s.event_id, s.instance, s.form_name,
-             nullif(row_number() over (partition by s.record, s.event_id
-                    order by (s.visitdate is null or s.visitdate = ''), s.visitdate,
-                             coalesce(s.instance, 1)), 1) as new_instance
-             from ($scope_sql) s)
+            ($numbered_sql)
              new_instances
                 on (d.project_id = ? and
                     d.record = new_instances.record and
@@ -109,7 +133,42 @@ HTML;
                   (new_instances.form_name is null or new_instances.form_name = md.form_name)
            ", array_merge($scope_params, [$pid]));
            $query->execute();
-           $affected_rows[] = $visitdateFieldName . ": " . $query->affected_rows;
+           // Query::affected_rows calls db_affected_rows() live, so it reflects the most
+           // recent query on the connection. It has to be captured before the log writes
+           // below, otherwise it would report the number of rows of the last log INSERT.
+           $rowsAffected = $query->affected_rows;
+           $affected_rows[] = $visitdateFieldName . ": " . $rowsAffected;
+
+           // Project log (redcap_log_event*): one entry per record and event, so the
+           // reordering shows up under Logging and in each record's own history.
+           foreach ($moves as $groupKey => $instanceMoves) {
+               list($record, $eventId) = explode("\x1f", $groupKey, 2);
+               \Logging::logEvent(
+                   "",                                   // sql_log - no raw SQL, it would be identical for every record
+                   $dataTable,                           // object_type
+                   "UPDATE",                             // event
+                   $record,                              // pk
+                   "Repeating instances reordered by '$visitdateFieldName':\n"
+                       . implode(", ", $instanceMoves),  // data_values
+                   "Reorder repeating instances",        // description (column is varchar(100))
+                   "",                                   // change_reason
+                   "",                                   // userid_override - keep the acting user
+                   $pid,                                 // project_id_override
+                   true,                                 // useNOW
+                   $eventId                              // event_id_override
+               );
+           }
+           $log_notices[] = $visitdateFieldName . ": " . count($moves)
+                          . " record/event group(s) written to the project log";
+
+           // Module log: one entry per run and field, for technical traceability.
+           $module->log("Reorder repeating instances", array(
+               "field"                   => $visitdateFieldName,
+               "data_table"              => $dataTable,
+               "groups_changed"          => count($moves),
+               "rows_affected"           => $rowsAffected,
+               "instances_without_date"  => $blanks,
+           ));
        } catch (\Throwable $e) {
            $errors[] = $visitdateFieldName . ": " . $e->getMessage()
                      . " (if this is a SQL error, check that your MySQL/MariaDB version supports"
@@ -120,6 +179,9 @@ HTML;
     echo "<p>Data table used for this project: <b>$dataTable</b></p>";
     if (!empty($affected_rows)) {
         echo "Numbers of reordered individual fields:<br>" . implode('<br>', $affected_rows);
+    }
+    if (!empty($log_notices)) {
+        echo "<br><br>" . implode('<br>', $log_notices);
     }
     if (!empty($blank_notices)) {
         echo "<br><br>" . implode('<br>', $blank_notices);
