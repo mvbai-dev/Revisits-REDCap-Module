@@ -11,7 +11,9 @@ if($_SERVER['REQUEST_METHOD'] != 'POST'){ // show form as a simple button
     if (!$field_names_text) {
         echo "Please configure at least one visit date field in the module configuration first!";
     } else {
-        echo "<form method=\"post\"><button>Re-order all visits based on $field_names_text</button></form>";
+        echo "<form method=\"post\">"
+           . "<input type=\"hidden\" name=\"redcap_csrf_token\" value=\"" . $module->getCSRFToken() . "\">"
+           . "<button>Re-order all visits based on $field_names_text</button></form>";
         echo <<<HTML
 				<p><b>READ THIS:</b> This will try to re-order all repeatable events and repeatable instruments based 
 				   on the field names above. Instruments/events which contain none of these fields should not be 
@@ -25,8 +27,7 @@ HTML;
     $pid = $module->getProjectId();
     // REDCap spreads project data over several redcap_data* tables (sharding); the table
     // belonging to this project must be looked up at runtime instead of being hard-coded.
-    // \REDCap::getDataTable() exists since REDCap 13.11; older versions only have one table.
-    $dataTable = method_exists('\REDCap', 'getDataTable') ? \REDCap::getDataTable($pid) : 'redcap_data';
+    $dataTable = $module->getDataTable($pid);
     $errors = array();
     $affected_rows = array();
     $blank_notices = array();
@@ -63,14 +64,15 @@ HTML;
 
        try {
            // Report how many instances are being sorted to the end for lack of a date.
-           $q = ExternalModules::query("select count(*) from ($scope_sql) s
-                                        where s.visitdate is null or s.visitdate = ''", $scope_params);
+           $q = $module->query("select count(*) from ($scope_sql) s
+                                where s.visitdate is null or s.visitdate = ''", $scope_params);
            $blanks = (int) $q->fetch_row()[0];
            if ($blanks > 0) {
                $blank_notices[] = "$visitdateFieldName: $blanks instance(s) without a date value were sorted to the end";
            }
 
-           ExternalModules::query("
+           $query = $module->createQuery();
+           $query->add("
             update $dataTable d inner join
             (select s.record, s.event_id, s.instance, s.form_name,
              nullif(row_number() over (partition by s.record, s.event_id
@@ -88,7 +90,8 @@ HTML;
                   coalesce(d.instance, -1) != coalesce(new_instances.new_instance, -1) and
                   (new_instances.form_name is null or new_instances.form_name = md.form_name)
            ", array_merge($scope_params, [$pid]));
-           $affected_rows[] = $visitdateFieldName . ": " . db_affected_rows();
+           $query->execute();
+           $affected_rows[] = $visitdateFieldName . ": " . $query->affected_rows;
        } catch (\Throwable $e) {
            $errors[] = $visitdateFieldName . ": " . $e->getMessage();
        }

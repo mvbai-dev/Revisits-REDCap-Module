@@ -3,6 +3,7 @@
     "namespace": "UNILE\\Revisits", 
     "description": "Allows to re-order visits based on a field (usually visit_date).",
     "documentation": "README.md",
+    "framework-version": 17,
     "authors": [
         {
              "name": "Christof Meigen",
@@ -14,7 +15,7 @@
 				"project": [
 						{
 								"name": "Reorder Visits",
-								"icon": "report",
+								"icon": "fa-solid fa-arrow-down-1-9",
 								"url": "reorder",
 								"show-header-and-footer": true
 						}
