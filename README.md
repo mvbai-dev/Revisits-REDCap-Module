@@ -102,7 +102,9 @@ sich nachvollziehbar bleibt.
 Textpräfix `[instance = N],` (Instanz 1 ohne Präfix). Nach der Umnummerierung
 werden diese Präfixe in den bisherigen Dateneingabe-Einträgen der verschobenen
 Instanzen auf die neue Nummer umgeschrieben, damit Logging-Seite und Feldhistorie
-zu den Daten passen. Die eigenen „Reorder"-Einträge behalten bewusst die alte
+(das (H) neben einem Wert) zu den Daten passen. Dazu gehören neben Werteänderungen
+auch Datei-Uploads und -Löschungen, die das (H) bei Upload-Feldern ebenfalls
+anzeigt. Die eigenen „Reorder"-Einträge behalten bewusst die alte
 Zuordnung, sie dokumentieren den Vorgang. Die Ausgabeseite meldet, wie viele
 Einträge umgeschrieben wurden.
 

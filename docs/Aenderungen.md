@@ -244,9 +244,17 @@ Abwägung gegen ein unveränderliches Protokoll). Details:
   einer Rotation: Ein Eintrag, der von 1 auf 2 gesetzt wurde, würde von `2 -> 3`
   erneut erfasst und von `3 -> 1` ein drittes Mal. So stand in einer ersten Fassung
   am Ende jeder Eintrag auf Instanz 1.
-- **Nur Dateneingabe-Einträge:** `event` INSERT/UPDATE/DELETE, `object_type`
-  `redcap_data*` — REDCap schreibt dort auch bei PID 17 `redcap_data`, obwohl die
-  Daten in `redcap_data2` liegen. Die eigenen „Reorder"-Einträge sind ausgenommen.
+- **Nur Dateneingabe-Einträge:** `event` INSERT/UPDATE/DELETE sowie DOC_UPLOAD
+  und DOC_DELETE, `object_type` `redcap_data*` — REDCap schreibt dort auch bei
+  PID 17 `redcap_data`, obwohl die Daten in `redcap_data2` liegen. Die eigenen
+  „Reorder"-Einträge sind ausgenommen; das (H)-Popup zeigt sie ohnehin nicht an.
+- **Datei-Uploads:** `Form::getDataHistoryLog()` liest für Upload-Felder auch
+  `DOC_UPLOAD`- und `DOC_DELETE`-Einträge, und beide tragen das Instanzpräfix
+  (`DataEntry/file_upload.php`, `file_delete.php` übergeben `$_GET['instance']`).
+  Eine Löschung wird als bloßer Feldname ohne `= Wert` geloggt. In einer ersten
+  Fassung fehlten beide Ereignistypen; der Test unten schlug damit an fünf
+  Upload-/Lösch-Einträgen fehl, die Datei-Zuordnung in den Daten selbst wanderte
+  dagegen korrekt mit.
 - **Wiederholbares Event:** alle Formulare teilen eine Instanzachse, jeder Eintrag
   des Events wandert mit. Ausnahme „Delete record" (ganzer Record).
 - **Wiederholbares Instrument:** Ein Event kann mehrere unabhängig nummerierte
@@ -279,6 +287,16 @@ PID 17 (wiederholbares Event), Record 704
   Runde 2  Zuordnung 1->4, 4->1         11 umgeschrieben
   Runde 3  keine Änderung               0
   Einträge aus Event 44 (nicht wiederholt): unverändert
+```
+
+Datei-Uploads, PID 12 mit Test-Upload-Feld `visit_document` im Formular „visits",
+Uploads auf drei Instanzen, auf einer davon Upload, Löschung, erneuter Upload
+(Log-Einträge mit denselben Aufrufen wie REDCaps Upload-/Löschseite):
+
+```
+ohne DOC_UPLOAD/DOC_DELETE, Record 706   6 Prüfungen fehlgeschlagen (alle Upload-Einträge)
+mit,                         Record 707   Runde 1: 9 umgeschrieben, Runde 2: 8, Runde 3: 0
+                                          alle Prüfungen bestanden
 ```
 
 Alle Prüfungen bestanden, ebenso mit den Records 701 (PID 12) und 703 (PID 17)

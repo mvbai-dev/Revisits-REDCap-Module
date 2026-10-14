@@ -179,7 +179,8 @@ HTML;
            // pair would chain within a rotation: a row moved 1 -> 2 would be picked up again
            // by 2 -> 3 and then by 3 -> 1.
            //
-           // Only data-entry rows are touched; the module's own "Reorder" entries describe the
+           // Only data-entry rows are touched (value changes and file uploads/deletions, which the
+           // data history popup reads as well); the module's own "Reorder" entries describe the
            // old numbering on purpose. For a repeating event every form in the event shares one
            // instance axis. For a repeating instrument several independently numbered forms can
            // live in the same event, so a row is only rewritten if its fields belong to the
@@ -203,9 +204,9 @@ HTML;
                        ? array("not like ?", "[instance = %")
                        : array("like ?", "[instance = $oldInstance],%");
                    $rows = $module->query("
-                        select log_event_id, description, data_values from $logTable
+                        select log_event_id, event, description, data_values from $logTable
                         where project_id = ? and pk = ? and event_id = ?
-                          and event in ('INSERT', 'UPDATE', 'DELETE')
+                          and event in ('INSERT', 'UPDATE', 'DELETE', 'DOC_UPLOAD', 'DOC_DELETE')
                           and object_type like 'redcap\_data%'
                           and description <> 'Reorder repeating instances'
                           and data_values {$tagCondition[0]}
@@ -215,9 +216,15 @@ HTML;
                            ? $row['data_values']
                            : substr($row['data_values'], strlen("[instance = $oldInstance],\n"));
 
-                       // Checkbox values are logged as "field(code) = checked".
-                       preg_match_all('/^([a-z_][a-z0-9_]*)(?:\([^)]*\))?\s*=/mi', $body, $fieldMatches);
-                       $knownFields = array_intersect(array_unique($fieldMatches[1]), array_keys($fieldForms));
+                       // Checkbox values are logged as "field(code) = checked". A deleted file
+                       // upload is logged as the bare field name, without "= value".
+                       if ($row['event'] === 'DOC_DELETE') {
+                           $loggedFields = array(trim($body));
+                       } else {
+                           preg_match_all('/^([a-z_][a-z0-9_]*)(?:\([^)]*\))?\s*=/mi', $body, $fieldMatches);
+                           $loggedFields = array_unique($fieldMatches[1]);
+                       }
+                       $knownFields = array_intersect($loggedFields, array_keys($fieldForms));
                        $specificFields = array_diff($knownFields, array('record_id'));
                        if (empty($specificFields)) {
                            // In a repeating event a record_id-only row is the creation of that event
