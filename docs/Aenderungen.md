@@ -260,10 +260,24 @@ Abwägung gegen ein unveränderliches Protokoll). Details:
 - **Wiederholbares Instrument:** Ein Event kann mehrere unabhängig nummerierte
   wiederholbare Formulare enthalten (PID 12: `visits`, `medications`,
   `adverse_events`, `family_members`). Umgeschrieben wird nur, wenn die geloggten
-  Felder zum umsortierten Formular gehören. `record_id` zählt nicht mit, REDCap
-  loggt es bei der Anlage eines Records formularunabhängig. Bleibt danach nichts
-  übrig (die „Instanz angelegt"-Zeile), oder stammen die Felder aus mehreren
-  Formularen, bleibt der Eintrag unverändert und wird gezählt.
+  Felder zum umsortierten Formular gehören. Stammen sie aus mehreren Formularen,
+  bleibt der Eintrag unverändert und wird als nicht zuordenbar gemeldet.
+- **Record-ID-Feld** (das erste Feld des Projekts, nicht zwingend `record_id`) zählt
+  bei dieser Prüfung nicht mit. REDCap legt pro Record, Event und Instanznummer eine
+  Datenzeile mit der Record-ID an und loggt das als „Create record" ohne weiteren
+  Inhalt (`Records::saveData()`, Classes/Records.php:7219–7244). Bei wiederholbaren
+  Instrumenten teilen sich alle Formulare mit derselben Nummer diese Zeile: In
+  Record 708 hat die Februar-Visite (Instanz 2) einen solchen Eintrag (251),
+  Medikament B, ebenfalls Instanz 2, keinen eigenen (255). Die Zeile gehört zum
+  ersten Formular, die Umnummerierung verschiebt sie nicht, und da nur vorhandene
+  Nummern getauscht werden, behält jede Nummer ihre Zeile. Der Logeintrag bleibt
+  deshalb bewusst stehen und passt weiter zu den Daten. Zuordnen ließe er sich
+  über den unmittelbar folgenden Eintrag (gleicher Zeitstempel, Benutzer und
+  Instanz, ID +1 — auf dem Testserver bei allen 64 solchen Zeilen der Fall), aber
+  dann widerspräche das Log den Daten. Bei wiederholbaren Events wandert die
+  Record-ID-Zeile mit der Instanz, ihr Eintrag ebenso.
+- In einer ersten Fassung war das Record-ID-Feld fest als `record_id` codiert und
+  hätte in Projekten mit anderem Feldnamen (z. B. `study_id`) nicht gegriffen.
 - Checkbox-Werte werden als `feld(code) = checked` geloggt; das Muster für
   Feldnamen berücksichtigt das.
 
@@ -277,8 +291,8 @@ Logeintrag.
 
 ```
 PID 12 (wiederholbares Instrument), Record 702
-  Runde 1  Zuordnung 1->3, 2->1, 3->2   4 umgeschrieben, 2 nicht zuordenbar
-  Runde 2  Zuordnung 1->4, 4->1         5 umgeschrieben, 1 nicht zuordenbar
+  Runde 1  Zuordnung 1->3, 2->1, 3->2   4 umgeschrieben, 2 Record-ID-Einträge belassen
+  Runde 2  Zuordnung 1->4, 4->1         5 umgeschrieben, 1 Record-ID-Eintrag belassen
   Runde 3  keine Änderung               0
   medications-Einträge mit gleichen Instanznummern: in allen Runden unverändert
 
@@ -302,7 +316,7 @@ mit,                         Record 707   Runde 1: 9 umgeschrieben, Runde 2: 8, 
 Alle Prüfungen bestanden, ebenso mit den Records 701 (PID 12) und 703 (PID 17)
 in einer Vorfassung. Bei 703 fiel dabei auf, dass eine „Create record"-Zeile, die
 in Runde 1 auf Instanz 1 rückte und damit ihr Präfix verlor, in Runde 2 nicht mehr
-mitwanderte; daraufhin werden reine `record_id`-Zeilen im Event-Fall immer
+mitwanderte; daraufhin werden reine Record-ID-Einträge im Event-Fall immer
 mitgezogen (außer „Delete record").
 
 ---
@@ -344,8 +358,6 @@ Beschränkung auf Datumsfelder.
   Änderungen — sie beschreibt den Zustand, nicht die Aktion.
 - Die zwölf Tabellen mit `instance`-Spalte werden nicht mitgezogen; aktuell nur
   als Einsatzgrenze dokumentiert.
-- Feldhistorie: „Instanz angelegt"-Zeilen bei wiederholbaren Instrumenten behalten
-  die alte Nummer (nur `record_id`, kein Formular erkennbar).
 - Feldhistorie: Ein Textwert, der selbst einen Zeilenumbruch gefolgt von
   `feldname =` enthält, könnte als zusätzliches Feld gelesen werden. Nur relevant,
   wenn der Name zu einem existierenden Feld eines anderen Formulars passt — dann

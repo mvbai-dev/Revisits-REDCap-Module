@@ -22,8 +22,7 @@ if($_SERVER['REQUEST_METHOD'] != 'POST'){ // show form as a simple button
 					 <br>The reordering is written to the project Logging page (one entry per record and event),
 					 but it still cannot be undone automatically - restoring a backup is the only way back!
 					 <br>Existing field history entries of the moved instances are updated to the new instance
-					 numbers. Entries that contain nothing but the record ID cannot be assigned to one repeating
-					 instrument and keep their old number (see README).</p>
+					 numbers (see README).</p>
 HTML;
     }
 } else { // user clicked the button...
@@ -184,16 +183,25 @@ HTML;
            // old numbering on purpose. For a repeating event every form in the event shares one
            // instance axis. For a repeating instrument several independently numbered forms can
            // live in the same event, so a row is only rewritten if its fields belong to the
-           // reordered form. record_id is not counted for that - REDCap logs it on record
-           // creation regardless of the form - and a row with nothing but record_id ("instance
-           // created") cannot be attributed there and stays as it is.
+           // reordered form.
+           //
+           // The record ID field (the project's first field) is not counted for that. REDCap
+           // stores one record ID row per record, event and instance number and logs its creation
+           // as "Create record" with nothing else in it. In a repeating instrument that row is
+           // shared by every form using the same instance number and belongs to the first form,
+           // so the UPDATE above does not move it - and its log entry stays as it is, matching
+           // the data. In a repeating event it moves with the instance, and so does its entry.
+           // Deleting the whole record is not instance-specific and is never touched.
            $logTable = \REDCap::getLogEventTable($pid);
            $fieldForms = array();
-           $q = $module->query("select field_name, form_name from redcap_metadata where project_id = ?", [$pid]);
+           $q = $module->query("select field_name, form_name from redcap_metadata where project_id = ?
+                                order by field_order", [$pid]);
            while ($row = $q->fetch_assoc()) {
                $fieldForms[$row['field_name']] = $row['form_name'];
            }
+           $recordIdField = array_key_first($fieldForms);
            $historyUpdates = array();
+           $historyKept = 0;
            $historyUnattributable = 0;
            foreach ($moveDetails as $groupKey => $pairs) {
                list($moveRecord, $moveEventId) = explode("\x1f", $groupKey, 2);
@@ -225,13 +233,10 @@ HTML;
                            $loggedFields = array_unique($fieldMatches[1]);
                        }
                        $knownFields = array_intersect($loggedFields, array_keys($fieldForms));
-                       $specificFields = array_diff($knownFields, array('record_id'));
+                       $specificFields = array_diff($knownFields, array($recordIdField));
                        if (empty($specificFields)) {
-                           // In a repeating event a record_id-only row is the creation of that event
-                           // instance. Deleting the whole record is not instance-specific, and in a
-                           // repeating instrument the row does not say which form it belongs to.
                            if ($scopeFormName !== null || strpos($row['description'], 'Delete record') === 0) {
-                               $historyUnattributable++;
+                               $historyKept++;
                                continue;
                            }
                        } elseif ($scopeFormName !== null) {
@@ -260,8 +265,8 @@ HTML;
                $log_notices[] = $visitdateFieldName . ": field history - " . count($historyUpdates)
                               . " log entry/entries updated to the new instance numbers"
                               . ($historyUnattributable > 0
-                                    ? ", $historyUnattributable left unchanged (cannot be attributed"
-                                      . " to one repeating form)"
+                                    ? ", $historyUnattributable left unchanged (fields of several forms,"
+                                      . " cannot be attributed to one repeating form)"
                                     : "");
            }
 
@@ -273,6 +278,7 @@ HTML;
                "rows_affected"           => $rowsAffected,
                "instances_without_date"  => $blanks,
                "history_rows_rewritten"  => count($historyUpdates),
+               "history_rows_kept_record_id" => $historyKept,
                "history_rows_unattributable" => $historyUnattributable,
            ));
        } catch (\Throwable $e) {

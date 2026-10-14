@@ -112,12 +112,20 @@ Das ist eine Entscheidung gegen ein unveränderliches Protokoll: Die Historie ze
 danach die aktuelle Nummerierung, nicht die zum Zeitpunkt der Eingabe gültige.
 Was vorher wo stand, bleibt über die „Reorder"-Einträge rekonstruierbar.
 
-Nicht zuordenbar und deshalb unverändert:
+Bewusst unverändert bleiben:
 
-- bei **wiederholbaren Instrumenten** Einträge, die nur `record_id` enthalten
-  (REDCap schreibt sie beim Anlegen einer Instanz, ohne das Formular zu nennen),
-  und Einträge mit Feldern aus mehreren Formularen
-- **„Delete record"** (Löschen des ganzen Records)
+- bei **wiederholbaren Instrumenten** die „Create record"-Einträge, die nur das
+  Record-ID-Feld (das erste Feld des Projekts) enthalten. REDCap legt pro
+  Instanznummer eine Datenzeile mit der Record-ID an und protokolliert genau das.
+  Diese Zeile teilen sich alle wiederholbaren Formulare mit derselben Nummer; sie
+  gehört zum ersten Formular und wird von der Umnummerierung nicht verschoben. Ihr
+  Logeintrag passt deshalb weiterhin zu den Daten. Das (H) zeigt ihn ohnehin nicht
+  an. Bei einem **wiederholbaren Event** wandert die Record-ID-Zeile dagegen mit
+  der Instanz und ihr Eintrag mit ihr.
+- **„Delete record"** (Löschen des ganzen Records, nicht instanzbezogen).
+
+Nicht zuordenbar und deshalb ebenfalls unverändert sind Einträge, deren Felder aus
+mehreren Formularen stammen; die Ausgabeseite meldet ihre Anzahl.
 
 ## Grenzen und Risiken
 
