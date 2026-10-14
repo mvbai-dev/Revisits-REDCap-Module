@@ -226,7 +226,83 @@ Zweiter Lauf hintereinander: `0 record/event group(s) written to the project log
 
 ---
 
+## 6. Feldhistorie zeigte nach dem Umsortieren die alten Instanznummern
+
+**Befund.** Logging-Seite und Feldhistorie lesen `redcap_log_event*`. Die Instanz
+steht dort nicht in einer Spalte, sondern als Textpräfix von `data_values`:
+`[instance = N],\n`, bei Instanz 1 gar kein Präfix (`Logging::logEvent()`). Die
+Umnummerierung ändert nur `instance` in der Datentabelle.
+
+**Auswirkung.** Nach einem Lauf ordnete die Historie alte Werte der falschen
+Instanz zu. Keine Daten betroffen, aber irreführend.
+
+**Korrektur.** Nach dem UPDATE werden die Präfixe der Dateneingabe-Einträge auf
+die neue Nummer umgeschrieben (Nutzerentscheidung 2026-10-14, siehe README zur
+Abwägung gegen ein unveränderliches Protokoll). Details:
+
+- **Erst sammeln, dann schreiben.** Paarweises Umschreiben verkettet sich innerhalb
+  einer Rotation: Ein Eintrag, der von 1 auf 2 gesetzt wurde, würde von `2 -> 3`
+  erneut erfasst und von `3 -> 1` ein drittes Mal. So stand in einer ersten Fassung
+  am Ende jeder Eintrag auf Instanz 1.
+- **Nur Dateneingabe-Einträge:** `event` INSERT/UPDATE/DELETE, `object_type`
+  `redcap_data*` — REDCap schreibt dort auch bei PID 17 `redcap_data`, obwohl die
+  Daten in `redcap_data2` liegen. Die eigenen „Reorder"-Einträge sind ausgenommen.
+- **Wiederholbares Event:** alle Formulare teilen eine Instanzachse, jeder Eintrag
+  des Events wandert mit. Ausnahme „Delete record" (ganzer Record).
+- **Wiederholbares Instrument:** Ein Event kann mehrere unabhängig nummerierte
+  wiederholbare Formulare enthalten (PID 12: `visits`, `medications`,
+  `adverse_events`, `family_members`). Umgeschrieben wird nur, wenn die geloggten
+  Felder zum umsortierten Formular gehören. `record_id` zählt nicht mit, REDCap
+  loggt es bei der Anlage eines Records formularunabhängig. Bleibt danach nichts
+  übrig (die „Instanz angelegt"-Zeile), oder stammen die Felder aus mehreren
+  Formularen, bleibt der Eintrag unverändert und wird gezählt.
+- Checkbox-Werte werden als `feld(code) = checked` geloggt; das Muster für
+  Feldnamen berücksichtigt das.
+
+**Nachweis.** Testskript mit frischen Records, Instanzen einzeln und absichtlich
+unsortiert über `REDCap::saveData()` angelegt (also mit echten Logeinträgen), dazu
+eine spätere Änderung an einer Instanz. Drei Runden: erste Umsortierung, Datumswerte
+über den normalen Speicherweg geändert und erneut umsortiert, dritter Lauf ohne
+Änderung. Die erwartete Zuordnung leitet das Skript aus eindeutigen Beschriftungen
+ab, unabhängig vom Modul; geprüft werden Daten und jeder vorher vorhandene
+Logeintrag.
+
+```
+PID 12 (wiederholbares Instrument), Record 702
+  Runde 1  Zuordnung 1->3, 2->1, 3->2   4 umgeschrieben, 2 nicht zuordenbar
+  Runde 2  Zuordnung 1->4, 4->1         5 umgeschrieben, 1 nicht zuordenbar
+  Runde 3  keine Änderung               0
+  medications-Einträge mit gleichen Instanznummern: in allen Runden unverändert
+
+PID 17 (wiederholbares Event), Record 704
+  Runde 1  Zuordnung 1->3, 2->1, 3->2   12 umgeschrieben
+  Runde 2  Zuordnung 1->4, 4->1         11 umgeschrieben
+  Runde 3  keine Änderung               0
+  Einträge aus Event 44 (nicht wiederholt): unverändert
+```
+
+Alle Prüfungen bestanden, ebenso mit den Records 701 (PID 12) und 703 (PID 17)
+in einer Vorfassung. Bei 703 fiel dabei auf, dass eine „Create record"-Zeile, die
+in Runde 1 auf Instanz 1 rückte und damit ihr Präfix verlor, in Runde 2 nicht mehr
+mitwanderte; daraufhin werden reine `record_id`-Zeilen im Event-Fall immer
+mitgezogen (außer „Delete record").
+
+---
+
 ## Bewusst nicht geändert
+
+**Materialisierung der neuen Nummerierung in einer temporären Tabelle.** Geprüft
+und verworfen. Verdacht war, dass das UPDATE beim Lesen seiner eigenen Tabelle
+(`update … join (select … from redcap_data …)`) halb aktualisierte Zeilen sieht.
+`EXPLAIN` zeigt die Unterabfrage als `DERIVED`, angesprochen über `<derived2>` mit
+automatisch angelegtem Index `key0`: MariaDB materialisiert sie vollständig, bevor
+geschrieben wird (vermutlich zwingend, weil die Fensterfunktion ein Einschmelzen in
+die äußere Abfrage verhindert). Je ein kontrollierter Lauf einer
+Drei-Instanzen-Rotation mit `derived_merge=on` und `off` lieferte korrekte Werte,
+ebenso alle Läufe des Testskripts aus Abschnitt 6. Eine zunächst als Datenverlust
+gedeutete Beobachtung ging auf eine Eingabe über die Oberfläche (Account `admin`,
+DataEntry, dann Reorder-Button) zwischen Datenanlage und Testlauf zurück, nicht auf
+das Modul.
 
 **Umstellung von SQL auf `REDCap::saveData()`.** Geprüft und verworfen. `instance`
 ist in REDCap eine Adresse, kein Wert — die API kann „verschiebe Instanz 3 auf 1"
@@ -250,3 +326,11 @@ Beschränkung auf Datumsfelder.
   Änderungen — sie beschreibt den Zustand, nicht die Aktion.
 - Die zwölf Tabellen mit `instance`-Spalte werden nicht mitgezogen; aktuell nur
   als Einsatzgrenze dokumentiert.
+- Feldhistorie: „Instanz angelegt"-Zeilen bei wiederholbaren Instrumenten behalten
+  die alte Nummer (nur `record_id`, kein Formular erkennbar).
+- Feldhistorie: Ein Textwert, der selbst einen Zeilenumbruch gefolgt von
+  `feldname =` enthält, könnte als zusätzliches Feld gelesen werden. Nur relevant,
+  wenn der Name zu einem existierenden Feld eines anderen Formulars passt — dann
+  bleibt der Eintrag unverändert, er wird nicht falsch umgeschrieben.
+- Auch die Feldhistorie liegt außerhalb einer Transaktion: Bricht ein Lauf nach dem
+  UPDATE ab, sind die Daten umnummeriert, die Historie noch nicht.

@@ -20,7 +20,10 @@ if($_SERVER['REQUEST_METHOD'] != 'POST'){ // show form as a simple button
            affected. If a repeatable event contains several of these fields, the last one wins (but you should not rely on that).
 					 <br>Instances with no value in the date field are sorted to the end, keeping their relative order.
 					 <br>The reordering is written to the project Logging page (one entry per record and event),
-					 but it still cannot be undone automatically - restoring a backup is the only way back!</p>
+					 but it still cannot be undone automatically - restoring a backup is the only way back!
+					 <br>Existing field history entries of the moved instances are updated to the new instance
+					 numbers. Entries that contain nothing but the record ID cannot be assigned to one repeating
+					 instrument and keep their old number (see README).</p>
 HTML;
     }
 } else { // user clicked the button...
@@ -103,9 +106,13 @@ HTML;
            // Collect what is about to change, grouped by record and event, so that the
            // reordering can be written to the project log. This has to happen before the
            // UPDATE, because afterwards the old numbering is gone.
+           // $moveDetails/$moveFormNames hold the same moves as numbers plus the repeating
+           // form (null for a repeating event), for the field-history rewrite further down.
            $moves = array();
+           $moveDetails = array();
+           $moveFormNames = array();
            $q = $module->query("
-                select n.record, n.event_id,
+                select n.record, n.event_id, n.form_name,
                        coalesce(n.instance, 1) as old_instance,
                        coalesce(n.new_instance, 1) as new_instance
                 from ($numbered_sql) n
@@ -113,8 +120,10 @@ HTML;
                 order by n.record, old_instance
            ", $scope_params);
            while ($row = $q->fetch_assoc()) {
-               $moves[$row['record'] . "\x1f" . $row['event_id']][] =
-                   $row['old_instance'] . " -> " . $row['new_instance'];
+               $groupKey = $row['record'] . "\x1f" . $row['event_id'];
+               $moves[$groupKey][] = $row['old_instance'] . " -> " . $row['new_instance'];
+               $moveDetails[$groupKey][] = [(int) $row['old_instance'], (int) $row['new_instance']];
+               $moveFormNames[$groupKey] = $row['form_name'];
            }
 
            $query = $module->createQuery();
@@ -161,6 +170,94 @@ HTML;
            $log_notices[] = $visitdateFieldName . ": " . count($moves)
                           . " record/event group(s) written to the project log";
 
+           // Field history: the Logging page and the per-field history read redcap_log_event*,
+           // where the instance is not a column but a text prefix of data_values
+           // ("[instance = N],\n", no prefix at all for instance 1). The UPDATE above leaves
+           // those rows alone, so they are retagged here to the new numbering.
+           //
+           // All matching rows are collected first and written afterwards. Rewriting pair by
+           // pair would chain within a rotation: a row moved 1 -> 2 would be picked up again
+           // by 2 -> 3 and then by 3 -> 1.
+           //
+           // Only data-entry rows are touched; the module's own "Reorder" entries describe the
+           // old numbering on purpose. For a repeating event every form in the event shares one
+           // instance axis. For a repeating instrument several independently numbered forms can
+           // live in the same event, so a row is only rewritten if its fields belong to the
+           // reordered form. record_id is not counted for that - REDCap logs it on record
+           // creation regardless of the form - and a row with nothing but record_id ("instance
+           // created") cannot be attributed there and stays as it is.
+           $logTable = \REDCap::getLogEventTable($pid);
+           $fieldForms = array();
+           $q = $module->query("select field_name, form_name from redcap_metadata where project_id = ?", [$pid]);
+           while ($row = $q->fetch_assoc()) {
+               $fieldForms[$row['field_name']] = $row['form_name'];
+           }
+           $historyUpdates = array();
+           $historyUnattributable = 0;
+           foreach ($moveDetails as $groupKey => $pairs) {
+               list($moveRecord, $moveEventId) = explode("\x1f", $groupKey, 2);
+               $scopeFormName = $moveFormNames[$groupKey];
+               foreach ($pairs as $pair) {
+                   list($oldInstance, $newInstance) = $pair;
+                   $tagCondition = ($oldInstance === 1)
+                       ? array("not like ?", "[instance = %")
+                       : array("like ?", "[instance = $oldInstance],%");
+                   $rows = $module->query("
+                        select log_event_id, description, data_values from $logTable
+                        where project_id = ? and pk = ? and event_id = ?
+                          and event in ('INSERT', 'UPDATE', 'DELETE')
+                          and object_type like 'redcap\_data%'
+                          and description <> 'Reorder repeating instances'
+                          and data_values {$tagCondition[0]}
+                   ", [$pid, $moveRecord, $moveEventId, $tagCondition[1]]);
+                   while ($row = $rows->fetch_assoc()) {
+                       $body = ($oldInstance === 1)
+                           ? $row['data_values']
+                           : substr($row['data_values'], strlen("[instance = $oldInstance],\n"));
+
+                       // Checkbox values are logged as "field(code) = checked".
+                       preg_match_all('/^([a-z_][a-z0-9_]*)(?:\([^)]*\))?\s*=/mi', $body, $fieldMatches);
+                       $knownFields = array_intersect(array_unique($fieldMatches[1]), array_keys($fieldForms));
+                       $specificFields = array_diff($knownFields, array('record_id'));
+                       if (empty($specificFields)) {
+                           // In a repeating event a record_id-only row is the creation of that event
+                           // instance. Deleting the whole record is not instance-specific, and in a
+                           // repeating instrument the row does not say which form it belongs to.
+                           if ($scopeFormName !== null || strpos($row['description'], 'Delete record') === 0) {
+                               $historyUnattributable++;
+                               continue;
+                           }
+                       } elseif ($scopeFormName !== null) {
+                           $forms = array_unique(array_map(function ($f) use ($fieldForms) {
+                               return $fieldForms[$f];
+                           }, $specificFields));
+                           if (count($forms) > 1) {
+                               $historyUnattributable++;
+                               continue;
+                           }
+                           if (reset($forms) !== $scopeFormName) {
+                               continue;   // another repeating form with its own numbering
+                           }
+                       }
+
+                       $newTag = ($newInstance === 1) ? "" : "[instance = $newInstance],\n";
+                       $historyUpdates[$row['log_event_id']] = $newTag . $body;
+                   }
+               }
+           }
+           foreach ($historyUpdates as $logEventId => $dataValues) {
+               $module->query("update $logTable set data_values = ? where log_event_id = ?",
+                              [$dataValues, $logEventId]);
+           }
+           if (!empty($historyUpdates) || $historyUnattributable > 0) {
+               $log_notices[] = $visitdateFieldName . ": field history - " . count($historyUpdates)
+                              . " log entry/entries updated to the new instance numbers"
+                              . ($historyUnattributable > 0
+                                    ? ", $historyUnattributable left unchanged (cannot be attributed"
+                                      . " to one repeating form)"
+                                    : "");
+           }
+
            // Module log: one entry per run and field, for technical traceability.
            $module->log("Reorder repeating instances", array(
                "field"                   => $visitdateFieldName,
@@ -168,6 +265,8 @@ HTML;
                "groups_changed"          => count($moves),
                "rows_affected"           => $rowsAffected,
                "instances_without_date"  => $blanks,
+               "history_rows_rewritten"  => count($historyUpdates),
+               "history_rows_unattributable" => $historyUnattributable,
            ));
        } catch (\Throwable $e) {
            $errors[] = $visitdateFieldName . ": " . $e->getMessage()

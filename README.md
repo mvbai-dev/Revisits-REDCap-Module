@@ -98,6 +98,25 @@ geänderter Zeilen und Gruppen sowie der Anzahl datumsloser Instanzen. Wird auch
 geschrieben, wenn sich nichts geändert hat, damit das Auslösen des Werkzeugs an
 sich nachvollziehbar bleibt.
 
+**Bestehende Feldhistorie** — REDCap speichert die Instanz eines Logeintrags als
+Textpräfix `[instance = N],` (Instanz 1 ohne Präfix). Nach der Umnummerierung
+werden diese Präfixe in den bisherigen Dateneingabe-Einträgen der verschobenen
+Instanzen auf die neue Nummer umgeschrieben, damit Logging-Seite und Feldhistorie
+zu den Daten passen. Die eigenen „Reorder"-Einträge behalten bewusst die alte
+Zuordnung, sie dokumentieren den Vorgang. Die Ausgabeseite meldet, wie viele
+Einträge umgeschrieben wurden.
+
+Das ist eine Entscheidung gegen ein unveränderliches Protokoll: Die Historie zeigt
+danach die aktuelle Nummerierung, nicht die zum Zeitpunkt der Eingabe gültige.
+Was vorher wo stand, bleibt über die „Reorder"-Einträge rekonstruierbar.
+
+Nicht zuordenbar und deshalb unverändert:
+
+- bei **wiederholbaren Instrumenten** Einträge, die nur `record_id` enthalten
+  (REDCap schreibt sie beim Anlegen einer Instanz, ohne das Formular zu nennen),
+  und Einträge mit Feldern aus mehreren Formularen
+- **„Delete record"** (Löschen des ganzen Records)
+
 ## Grenzen und Risiken
 
 **Nicht rückgängig zu machen.** Das Log zeigt, was passiert ist, kann es aber
