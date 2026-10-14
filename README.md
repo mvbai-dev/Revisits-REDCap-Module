@@ -132,31 +132,58 @@ mehreren Formularen stammen; die Ausgabeseite meldet ihre Anzahl.
 **Nicht rückgängig zu machen.** Das Log zeigt, was passiert ist, kann es aber
 nicht zurücknehmen. Vor dem ersten Einsatz in einem produktiven Projekt: Backup.
 
-**Instanznummern stehen auch in anderen Tabellen.** Das Modul nummeriert
-ausschließlich in `redcap_data*` um. Auf einer REDCap-17-Instanz haben zwölf
-weitere Tabellen eine `instance`-Spalte:
+**Instanznummern in anderen Tabellen** werden mit derselben Zuordnung
+umnummeriert wie die Daten, damit alles, was an einer Visite hängt, mit ihr
+wandert:
 
-```
-redcap_surveys_response          redcap_locking_data         redcap_esignatures
-redcap_data_quality_status       redcap_edocs_data_mapping   redcap_alerts_sent
-redcap_alerts_recurrence         redcap_surveys_pdf_archive  redcap_surveys_scheduler
-redcap_outgoing_email_sms_log    redcap_surveys_scheduler_queue
-redcap_project_migration_files
-```
+| Tabelle | Inhalt |
+|---|---|
+| `redcap_surveys_response` | Survey-Antworten, Rückkehr-Codes |
+| `redcap_surveys_pdf_archive` | archivierte Survey-/eConsent-PDFs |
+| `redcap_locking_data` | Formularsperren |
+| `redcap_esignatures` | E-Signaturen |
+| `redcap_data_quality_status` | Feldkommentare, Data Queries, Regelergebnisse |
+| `redcap_edocs_data_mapping` | Zuordnung hochgeladener Dateien |
+| `redcap_alerts_sent`, `redcap_alerts_recurrence` | gesendete und wiederkehrende Alerts |
+| `redcap_surveys_scheduler_queue` | geplante und gesendete Survey-Einladungen |
+| `redcap_outgoing_email_sms_log` | Versandprotokoll |
 
-Verweise dort bleiben auf den alten Nummern stehen. **Das Modul darf deshalb
-nicht in Projekten eingesetzt werden, in denen auf den betroffenen Instanzen
-Surveys, Record-Locking, E-Signaturen oder Alerts hängen** — eine E-Signatur
-würde danach einen anderen Inhalt bescheinigen.
+Bei wiederholbaren Instrumenten nur die Zeilen des umsortierten Formulars, bei
+wiederholbaren Events alle Formulare des Events. Sperren und E-Signaturen wandern
+mit, weil sich die Werte selbst nicht ändern — eine Signatur bescheinigt danach
+weiterhin dieselben Werte, nur unter der neuen Nummer (Nutzerentscheidung
+2026-10-14). Nicht berücksichtigt: `redcap_project_migration_files`
+(Migrationshilfe) und `redcap_ehr_resource_instances` (nur bei EHR-Anbindung).
+`redcap_surveys_scheduler` hat eine Spalte `instance`, die aber eine Einstellung
+ist, keine Instanznummer.
+
+**Alles oder nichts, pro Datumsfeld.** Daten, Nachbartabellen, Projekt-Log und
+Feldhistorie werden in einer Datenbank-Transaktion umnummeriert. Bricht ein Lauf
+ab, bleibt für dieses Datumsfeld alles beim Alten, die Ausgabe meldet „nothing was
+changed for this field". Mehrere konfigurierte Datumsfelder laufen in getrennten
+Transaktionen nacheinander.
+
+**Feste Instanznummern in der Projektlogik.** Bezüge wie `[visit_date][1]` in
+berechneten Feldern, Branching, Piping, Alert- oder Einladungsbedingungen sowie
+Reports mit Instanzfilter zeigen nach dem Umsortieren auf eine andere Visite. Das
+kann das Modul nicht reparieren. `[first-instance]`/`[last-instance]` sind
+unkritisch, sie meinen danach die chronologisch erste bzw. letzte. Dasselbe gilt
+für bereits exportierte Daten und Auswertungen außerhalb REDCaps.
+
+**Vor der Aktivierung in einem Projekt klären:**
+
+- Gibt es Bezüge auf feste Instanznummern (siehe oben)?
+- Wurden schon Daten mit Instanznummern exportiert, auf die sich jemand stützt?
+- Backup vorhanden? Die Umsortierung lässt sich nicht automatisch rückgängig
+  machen.
+
+Das Modul ist eine Speziallösung für Projekte, in denen Visiten nicht in
+zeitlicher Reihenfolge erfasst wurden — nicht systemweit aktivieren.
 
 **Instanzen ohne Datumswert** werden ans Ende sortiert und behalten
 untereinander ihre Reihenfolge. Die Ausgabe meldet, wie viele das waren. Eine
 halb ausgefüllte Visite bekommt dadurch eine neue Nummer, die fachlich nichts
 bedeutet.
-
-**Keine Transaktionsklammer.** Die Abfrage für das Log und das anschließende
-UPDATE laufen einzeln, ebenso mehrere konfigurierte Datumsfelder nacheinander.
-Bei einem Abbruch mittendrin kann ein Teilzustand entstehen.
 
 ## Entwicklung
 

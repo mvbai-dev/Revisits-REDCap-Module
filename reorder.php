@@ -83,8 +83,7 @@ HTML;
        ";
        $scope_params = [$visitdateFieldName, $pid, $pid, $visitdateFieldName];
 
-       // The new numbering. Defined once so that the logging query below and the UPDATE
-       // can never disagree about what is going to change.
+       // The new numbering.
        $numbered_sql = "
             select s.record, s.event_id, s.instance, s.form_name,
              nullif(row_number() over (partition by s.record, s.event_id
@@ -102,11 +101,11 @@ HTML;
                $blank_notices[] = "$visitdateFieldName: $blanks instance(s) without a date value were sorted to the end";
            }
 
-           // Collect what is about to change, grouped by record and event, so that the
-           // reordering can be written to the project log. This has to happen before the
-           // UPDATE, because afterwards the old numbering is gone.
-           // $moveDetails/$moveFormNames hold the same moves as numbers plus the repeating
-           // form (null for a repeating event), for the field-history rewrite further down.
+           // Everything that is read happens before the first write: REDCap may send plain SELECTs
+           // to a read replica, which would not see this run's uncommitted changes.
+           //
+           // What is about to change, grouped by record and event. Computed once; the data table,
+           // the related tables, the project log and the field history all use this same mapping.
            $moves = array();
            $moveDetails = array();
            $moveFormNames = array();
@@ -124,143 +123,53 @@ HTML;
                $moveDetails[$groupKey][] = [(int) $row['old_instance'], (int) $row['new_instance']];
                $moveFormNames[$groupKey] = $row['form_name'];
            }
+           list($historyUpdates, $historyKept, $historyUnattributable) =
+               $module->planFieldHistory($pid, $moveDetails, $moveFormNames);
 
-           $query = $module->createQuery();
-           $query->add("
-            update $dataTable d inner join
-            ($numbered_sql)
-             new_instances
-                on (d.project_id = ? and
-                    d.record = new_instances.record and
-                    d.event_id = new_instances.event_id and
-                    coalesce(d.instance, -1) = coalesce(new_instances.instance, -1))
-            inner join redcap_metadata md
-            on (md.project_id = d.project_id and md.field_name = d.field_name)
-              set d.instance = new_instances.new_instance where
-                  coalesce(d.instance, -1) != coalesce(new_instances.new_instance, -1) and
-                  (new_instances.form_name is null or new_instances.form_name = md.form_name)
-           ", array_merge($scope_params, [$pid]));
-           $query->execute();
-           // Query::affected_rows calls db_affected_rows() live, so it reflects the most
-           // recent query on the connection. It has to be captured before the log writes
-           // below, otherwise it would report the number of rows of the last log INSERT.
-           $rowsAffected = $query->affected_rows;
-           $affected_rows[] = $visitdateFieldName . ": " . $rowsAffected;
+           $rowsAffected = 0;
+           $relatedCounts = array();
+           if (!empty($moveDetails)) {
+               // One transaction per date field: data, related tables, project log and field
+               // history are renumbered together or not at all.
+               $module->createMovesTable($moveDetails, $moveFormNames);
+               $module->query("start transaction", []);
+               try {
+                   $rowsAffected = $module->moveData($pid, $dataTable);
+                   $relatedCounts = $module->moveRelatedTables($pid);
 
-           // Project log (redcap_log_event*): one entry per record and event, so the
-           // reordering shows up under Logging and in each record's own history.
-           foreach ($moves as $groupKey => $instanceMoves) {
-               list($record, $eventId) = explode("\x1f", $groupKey, 2);
-               \Logging::logEvent(
-                   "",                                   // sql_log - no raw SQL, it would be identical for every record
-                   $dataTable,                           // object_type
-                   "UPDATE",                             // event
-                   $record,                              // pk
-                   "Repeating instances reordered by '$visitdateFieldName':\n"
-                       . implode(", ", $instanceMoves),  // data_values
-                   "Reorder repeating instances",        // description (column is varchar(100))
-                   "",                                   // change_reason
-                   "",                                   // userid_override - keep the acting user
-                   $pid,                                 // project_id_override
-                   true,                                 // useNOW
-                   $eventId                              // event_id_override
-               );
-           }
-           $log_notices[] = $visitdateFieldName . ": " . count($moves)
-                          . " record/event group(s) written to the project log";
-
-           // Field history: the Logging page and the per-field history read redcap_log_event*,
-           // where the instance is not a column but a text prefix of data_values
-           // ("[instance = N],\n", no prefix at all for instance 1). The UPDATE above leaves
-           // those rows alone, so they are retagged here to the new numbering.
-           //
-           // All matching rows are collected first and written afterwards. Rewriting pair by
-           // pair would chain within a rotation: a row moved 1 -> 2 would be picked up again
-           // by 2 -> 3 and then by 3 -> 1.
-           //
-           // Only data-entry rows are touched (value changes and file uploads/deletions, which the
-           // data history popup reads as well); the module's own "Reorder" entries describe the
-           // old numbering on purpose. For a repeating event every form in the event shares one
-           // instance axis. For a repeating instrument several independently numbered forms can
-           // live in the same event, so a row is only rewritten if its fields belong to the
-           // reordered form.
-           //
-           // The record ID field (the project's first field) is not counted for that. REDCap
-           // stores one record ID row per record, event and instance number and logs its creation
-           // as "Create record" with nothing else in it. In a repeating instrument that row is
-           // shared by every form using the same instance number and belongs to the first form,
-           // so the UPDATE above does not move it - and its log entry stays as it is, matching
-           // the data. In a repeating event it moves with the instance, and so does its entry.
-           // Deleting the whole record is not instance-specific and is never touched.
-           $logTable = \REDCap::getLogEventTable($pid);
-           $fieldForms = array();
-           $q = $module->query("select field_name, form_name from redcap_metadata where project_id = ?
-                                order by field_order", [$pid]);
-           while ($row = $q->fetch_assoc()) {
-               $fieldForms[$row['field_name']] = $row['form_name'];
-           }
-           $recordIdField = array_key_first($fieldForms);
-           $historyUpdates = array();
-           $historyKept = 0;
-           $historyUnattributable = 0;
-           foreach ($moveDetails as $groupKey => $pairs) {
-               list($moveRecord, $moveEventId) = explode("\x1f", $groupKey, 2);
-               $scopeFormName = $moveFormNames[$groupKey];
-               foreach ($pairs as $pair) {
-                   list($oldInstance, $newInstance) = $pair;
-                   $tagCondition = ($oldInstance === 1)
-                       ? array("not like ?", "[instance = %")
-                       : array("like ?", "[instance = $oldInstance],%");
-                   $rows = $module->query("
-                        select log_event_id, event, description, data_values from $logTable
-                        where project_id = ? and pk = ? and event_id = ?
-                          and event in ('INSERT', 'UPDATE', 'DELETE', 'DOC_UPLOAD', 'DOC_DELETE')
-                          and object_type like 'redcap\_data%'
-                          and description <> 'Reorder repeating instances'
-                          and data_values {$tagCondition[0]}
-                   ", [$pid, $moveRecord, $moveEventId, $tagCondition[1]]);
-                   while ($row = $rows->fetch_assoc()) {
-                       $body = ($oldInstance === 1)
-                           ? $row['data_values']
-                           : substr($row['data_values'], strlen("[instance = $oldInstance],\n"));
-
-                       // Checkbox values are logged as "field(code) = checked". A deleted file
-                       // upload is logged as the bare field name, without "= value".
-                       if ($row['event'] === 'DOC_DELETE') {
-                           $loggedFields = array(trim($body));
-                       } else {
-                           preg_match_all('/^([a-z_][a-z0-9_]*)(?:\([^)]*\))?\s*=/mi', $body, $fieldMatches);
-                           $loggedFields = array_unique($fieldMatches[1]);
-                       }
-                       $knownFields = array_intersect($loggedFields, array_keys($fieldForms));
-                       $specificFields = array_diff($knownFields, array($recordIdField));
-                       if (empty($specificFields)) {
-                           if ($scopeFormName !== null || strpos($row['description'], 'Delete record') === 0) {
-                               $historyKept++;
-                               continue;
-                           }
-                       } elseif ($scopeFormName !== null) {
-                           $forms = array_unique(array_map(function ($f) use ($fieldForms) {
-                               return $fieldForms[$f];
-                           }, $specificFields));
-                           if (count($forms) > 1) {
-                               $historyUnattributable++;
-                               continue;
-                           }
-                           if (reset($forms) !== $scopeFormName) {
-                               continue;   // another repeating form with its own numbering
-                           }
-                       }
-
-                       $newTag = ($newInstance === 1) ? "" : "[instance = $newInstance],\n";
-                       $historyUpdates[$row['log_event_id']] = $newTag . $body;
+                   // Project log (redcap_log_event*): one entry per record and event, so the
+                   // reordering shows up under Logging and in each record's own history.
+                   foreach ($moves as $groupKey => $instanceMoves) {
+                       list($record, $eventId) = explode("\x1f", $groupKey, 2);
+                       \Logging::logEvent(
+                           "",                                   // sql_log - no raw SQL, it would be identical for every record
+                           $dataTable,                           // object_type
+                           "UPDATE",                             // event
+                           $record,                              // pk
+                           "Repeating instances reordered by '$visitdateFieldName':\n"
+                               . implode(", ", $instanceMoves),  // data_values
+                           "Reorder repeating instances",        // description (column is varchar(100))
+                           "",                                   // change_reason
+                           "",                                   // userid_override - keep the acting user
+                           $pid,                                 // project_id_override
+                           true,                                 // useNOW
+                           $eventId                              // event_id_override
+                       );
                    }
+
+                   $module->applyFieldHistory($pid, $historyUpdates);
+                   $module->query("commit", []);
+               } catch (\Throwable $e) {
+                   $module->query("rollback", []);
+                   throw $e;
+               } finally {
+                   $module->dropMovesTable();
                }
            }
-           foreach ($historyUpdates as $logEventId => $dataValues) {
-               $module->query("update $logTable set data_values = ? where log_event_id = ?",
-                              [$dataValues, $logEventId]);
-           }
+
+           $affected_rows[] = $visitdateFieldName . ": " . $rowsAffected;
+           $log_notices[] = $visitdateFieldName . ": " . count($moves)
+                          . " record/event group(s) written to the project log";
            if (!empty($historyUpdates) || $historyUnattributable > 0) {
                $log_notices[] = $visitdateFieldName . ": field history - " . count($historyUpdates)
                               . " log entry/entries updated to the new instance numbers"
@@ -268,6 +177,11 @@ HTML;
                                     ? ", $historyUnattributable left unchanged (fields of several forms,"
                                       . " cannot be attributed to one repeating form)"
                                     : "");
+           }
+           if (!empty($relatedCounts)) {
+               $parts = array();
+               foreach ($relatedCounts as $table => $n) $parts[] = "$table: $n";
+               $log_notices[] = $visitdateFieldName . ": also renumbered - " . implode(", ", $parts);
            }
 
            // Module log: one entry per run and field, for technical traceability.
@@ -280,9 +194,11 @@ HTML;
                "history_rows_rewritten"  => count($historyUpdates),
                "history_rows_kept_record_id" => $historyKept,
                "history_rows_unattributable" => $historyUnattributable,
+               "related_tables"          => json_encode($relatedCounts),
            ));
        } catch (\Throwable $e) {
            $errors[] = $visitdateFieldName . ": " . $e->getMessage()
+                     . " - nothing was changed for this field"
                      . " (if this is a SQL error, check that your MySQL/MariaDB version supports"
                      . " window functions - MySQL 8.0 / MariaDB 10.2 and above)";
        }

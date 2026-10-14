@@ -321,6 +321,85 @@ mitgezogen (außer „Delete record").
 
 ---
 
+## 7. Instanznummern in anderen Tabellen, Transaktion
+
+**Befund.** Neben `redcap_data*` und dem Log haben auf REDCap 17.2.1 dreizehn
+Tabellen eine Spalte `instance` (`information_schema`). Zehn davon gehören zu den
+Daten einer Instanz: Survey-Antworten, Survey-PDF-Archiv, Sperren, E-Signaturen,
+Feldkommentare/Data Queries, Datei-Zuordnung, gesendete und wiederkehrende Alerts,
+Einladungs-Warteschlange und Versandprotokoll. Die Umnummerierung ließ sie auf der
+alten Nummer. Außerdem liefen UPDATE, Projekt-Log und Feldhistorie ohne
+Transaktion; ein Abbruch mittendrin hinterließ einen Teilzustand.
+
+**Auswirkung.** Nach einem Lauf gehörten Sperre, Signatur, Survey-Antwort oder
+Alert-Versand einer anderen Visite; ein Alert konnte für eine Instanz als „schon
+gesendet" gelten, deren Inhalt er nie gesehen hat. Die Datei-Zuordnung prüft REDCap
+beim Absenden eines Formulars (`DataEntry::addEdocDataMapping()`).
+
+**Korrektur.**
+
+- **Eine Zuordnung für alles.** Die Alt→Neu-Paare werden einmal berechnet und in
+  eine temporäre Tabelle `revisits_moves` geschrieben; Daten und alle
+  Nachbartabellen werden daraus umnummeriert. (Das ist keine Korrektur am
+  UPDATE-Verfahren selbst, siehe „Bewusst nicht geändert": Es geht darum, dass zehn
+  Tabellen garantiert dieselbe Zuordnung bekommen.)
+- **Zuordnung zum Formular je Tabelle:** Sperren und E-Signaturen über
+  `form_name`; Feldkommentare über `repeat_instrument`, sonst über das Formular
+  des Felds; Datei-Zuordnung über das Feld; Survey-Antworten über Teilnehmer →
+  Survey; PDF-Archiv über den Survey; Alerts und Versandprotokoll über
+  `instrument`; Einladungs-Warteschlange über Empfänger → Teilnehmer → Survey.
+  Instanz 1 steht in diesen Tabellen als `1`, nicht als `NULL`.
+- **Zweistufig über negative Zwischenwerte.** Die meisten Tabellen haben einen
+  Unique-Key über Formular/Record/Instanz; ein Tausch 1↔2 in einem UPDATE
+  scheitert sonst mit „Duplicate entry". Erst `instance = -neu`, dann Vorzeichen
+  umdrehen. Für die Daten genauso, damit das Ergebnis nicht von der
+  Verarbeitungsreihenfolge abhängt.
+- **Transaktion pro Datumsfeld.** Alles Lesende (Zuordnung, geplante
+  Feldhistorie) vor `start transaction`: REDCap kann reine SELECTs an eine
+  Lese-Replik schicken, die eigene, noch nicht festgeschriebene Änderungen nicht
+  sieht. Danach Daten, Nachbartabellen, Projekt-Log, Feldhistorie, `commit`; bei
+  jedem Fehler `rollback`. Weder `Logging::logEvent()` noch die übrigen benutzten
+  Funktionen committen selbst.
+
+**Nachweis.** Eigenes Testprojekt (PID 35, „Revisits Test (Tabellen)",
+longitudinal, Surveys): Event „Baseline" mit den wiederholbaren Instrumenten
+`visits` (Datum, Text, Datei, Checkbox, als Survey) und `medications`, Event
+„Follow-up" als wiederholbares Event mit zwei Formularen. Pro Test-Record 33
+Zeilen in allen zehn Tabellen, eingefügt wie REDCap sie schreibt
+(`Locking/single_form_action.php`, `DataQuality/data_resolution_popup.php`,
+`DataEntry::addEdocDataMapping()`, `Alerts.php`, `Message.php`); Survey-Teilnehmer
+und -Antworten über `REDCap::getSurveyLink()`. Alle drei visits-Instanzen gesperrt
+und mit Alert-Versand, damit der Unique-Key beim Tausch greift; medications mit
+denselben Nummern als Kontrolle. Erwartung pro Zeile beim Anlegen festgelegt,
+Zuordnung aus den Daten abgeleitet.
+
+```
+Record 4   Runde 1  visits 1->3, 2->1, 3->2, followup ebenso   28 von 33 verschoben
+           Runde 2  Datum geändert, erneute Rotation           28 von 33 verschoben
+           Runde 3  keine Änderung                              0
+           die 5 medications-Zeilen: in keiner Runde verschoben
+           alle Prüfungen bestanden
+```
+
+Abbruch: Trigger auf `redcap_alerts_sent`, der für Record 6 beim Umnummerieren
+einen Fehler auslöst — also nachdem Daten, Sperren, Signaturen, Kommentare,
+Datei-Zuordnung, Survey-Antworten und PDF-Archiv schon umnummeriert waren:
+
+```
+mit Trigger    Daten 0 / Log 0 / Nachbartabellen 0 von 33 Zeilen verändert,
+               Ausgabe "nothing was changed for this field"
+ohne Trigger   derselbe Record vollständig umsortiert
+```
+
+Ein erster Versuch mit Record 5 war ungültig: Der Trigger wurde wegen fehlendem
+`DELIMITER` gar nicht angelegt, der Lauf war ein normaler.
+
+Die Regressionstests aus Abschnitt 6 (Feldhistorie, PID 17) bestehen weiterhin;
+in PID 35 passen die Logeinträge von Record 4 zu den Instanzen, auch der
+Checkbox-Eintrag.
+
+---
+
 ## Bewusst nicht geändert
 
 **Materialisierung der neuen Nummerierung in einer temporären Tabelle.** Geprüft
@@ -352,15 +431,21 @@ Beschränkung auf Datumsfelder.
 
 ## Offen
 
-- Keine Transaktionsklammer um Log-Abfrage und UPDATE bzw. um mehrere
-  konfigurierte Datumsfelder.
+- Mehrere konfigurierte Datumsfelder laufen in getrennten Transaktionen: Scheitert
+  das zweite, bleibt das erste umsortiert.
 - Die Hinweiszeile zu datumslosen Instanzen erscheint auch bei einem Lauf ohne
   Änderungen — sie beschreibt den Zustand, nicht die Aktion.
-- Die zwölf Tabellen mit `instance`-Spalte werden nicht mitgezogen; aktuell nur
-  als Einsatzgrenze dokumentiert.
+- Bezüge auf feste Instanznummern in der Projektlogik (`[feld][1]`, Bedingungen,
+  Reportfilter) zeigen nach dem Umsortieren auf andere Visiten; vor der Aktivierung
+  klären (README).
+- `redcap_ehr_resource_instances` (EHR-Anbindung) und
+  `redcap_project_migration_files` werden nicht umnummeriert.
+- Bei einem Deadlock wiederholt das Modul-Framework die einzelne Abfrage
+  (`ExternalModules::query()`). InnoDB hat die Transaktion dann bereits
+  zurückgerollt; der Rest des Laufs liefe ohne Transaktion weiter. Nicht
+  beobachtet, bei gleichzeitiger Bearbeitung desselben Records denkbar.
 - Feldhistorie: Ein Textwert, der selbst einen Zeilenumbruch gefolgt von
   `feldname =` enthält, könnte als zusätzliches Feld gelesen werden. Nur relevant,
   wenn der Name zu einem existierenden Feld eines anderen Formulars passt — dann
   bleibt der Eintrag unverändert, er wird nicht falsch umgeschrieben.
-- Auch die Feldhistorie liegt außerhalb einer Transaktion: Bricht ein Lauf nach dem
-  UPDATE ab, sind die Daten umnummeriert, die Historie noch nicht.
+
