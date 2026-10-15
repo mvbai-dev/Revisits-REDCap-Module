@@ -132,7 +132,7 @@ HTML;
                // One transaction per date field: data, related tables, project log and field
                // history are renumbered together or not at all.
                $module->createMovesTable($moveDetails, $moveFormNames);
-               $module->query("start transaction", []);
+               $module->beginTransaction();
                try {
                    $rowsAffected = $module->moveData($pid, $dataTable);
                    $relatedCounts = $module->moveRelatedTables($pid);
@@ -158,11 +158,12 @@ HTML;
                    }
 
                    $module->applyFieldHistory($pid, $historyUpdates);
-                   $module->query("commit", []);
+                   $module->commitTransaction();
                } catch (\Throwable $e) {
-                   $module->query("rollback", []);
+                   $module->rollbackTransaction();
                    throw $e;
                } finally {
+                   $module->endTransaction();
                    $module->dropMovesTable();
                }
            }

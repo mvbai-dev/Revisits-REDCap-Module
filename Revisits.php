@@ -95,6 +95,52 @@ class Revisits extends \ExternalModules\AbstractExternalModule
         $this->query("drop temporary table if exists " . self::MOVES_TABLE, []);
     }
 
+    const TX_MARKER_TABLE = 'revisits_tx_marker';
+
+    /**
+     * Starts the transaction for one date field.
+     *
+     * The framework retries a query that hit a deadlock (ExternalModules::query()), but by then
+     * InnoDB has rolled back the whole transaction. With START TRANSACTION the retried query and
+     * everything after it would run in autocommit mode and be written one by one - reproduced:
+     * data rolled back, field history and invitations moved anyway. With autocommit off nothing
+     * is written before COMMIT, and a marker row inserted first tells whether the transaction is
+     * still the one that was started. Same for a lock wait timeout on servers with
+     * innodb_rollback_on_timeout = ON.
+     */
+    public function beginTransaction()
+    {
+        $this->query("drop temporary table if exists " . self::TX_MARKER_TABLE, []);
+        $this->query("create temporary table " . self::TX_MARKER_TABLE . " (n int not null) engine = InnoDB", []);
+        $this->query("set autocommit = 0", []);
+        $this->query("insert into " . self::TX_MARKER_TABLE . " (n) values (1)", []);
+    }
+
+    /**
+     * Commits, unless the database has aborted the transaction in between. Checked with an UPDATE,
+     * not a SELECT: REDCap may send SELECTs to a read replica, which does not know this
+     * connection's temporary table.
+     */
+    public function commitTransaction()
+    {
+        if ($this->affectedRows("update " . self::TX_MARKER_TABLE . " set n = n + 1", []) !== 1) {
+            throw new \Exception("The database aborted this run because the same records were being"
+                               . " changed at the same time (deadlock). Please run the reordering again.");
+        }
+        $this->query("commit", []);
+    }
+
+    public function rollbackTransaction()
+    {
+        $this->query("rollback", []);
+    }
+
+    public function endTransaction()
+    {
+        $this->query("set autocommit = 1", []);
+        $this->query("drop temporary table if exists " . self::TX_MARKER_TABLE, []);
+    }
+
     private function affectedRows($sql, $params)
     {
         $query = $this->createQuery();

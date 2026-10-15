@@ -168,7 +168,10 @@ ist, keine Instanznummer.
 Feldhistorie werden in einer Datenbank-Transaktion umnummeriert. Bricht ein Lauf
 ab, bleibt für dieses Datumsfeld alles beim Alten, die Ausgabe meldet „nothing was
 changed for this field". Mehrere konfigurierte Datumsfelder laufen in getrennten
-Transaktionen nacheinander.
+Transaktionen nacheinander. Bricht die Datenbank die Transaktion von sich aus ab,
+etwa bei einem Deadlock durch gleichzeitiges Speichern desselben Records, erkennt
+das Modul das vor dem Festschreiben und meldet, dass der Lauf wiederholt werden
+muss.
 
 **Feste Instanznummern in der Projektlogik.** Bezüge wie `[visit_date][1]` in
 berechneten Feldern, Branching, Piping, Alert- oder Einladungsbedingungen sowie

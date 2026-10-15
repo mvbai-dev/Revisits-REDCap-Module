@@ -435,6 +435,57 @@ REDCap-E-Mails bleiben absolut.
 
 ---
 
+## 9. Deadlock: Teilzustand trotz Transaktion
+
+**Befund.** `ExternalModules::query()` fängt Deadlocks (1213) und Lock-Wait-Timeouts
+(1205) ab, wartet 3 Sekunden und wiederholt **die einzelne Abfrage**. Bei einem
+Deadlock hat InnoDB zu diesem Zeitpunkt die ganze Transaktion bereits
+zurückgerollt; mit `start transaction` liefen die wiederholte Abfrage und alles
+Folgende danach im Autocommit-Modus und wurden einzeln festgeschrieben.
+
+**Auswirkung.** Reproduziert mit einem echten Deadlock: Eine zweite Verbindung
+sperrt die Alert-Zeilen eines Records, das Modul sperrt dessen Sperr-Zeilen und
+wartet auf die Alert-Zeilen, die zweite Verbindung greift nach den Sperr-Zeilen.
+Damit MariaDB das Modul als Opfer wählt, schreibt die zweite Verbindung vorher
+50 000 Zeilen in eine Hilfstabelle (InnoDB bricht die Transaktion mit weniger
+Änderungen ab). Ergebnis für die visits von Record 7, Ausgabe „Erfolg":
+
+```
+Daten, Sperren             unverändert (zurückgerollt)
+Feldhistorie               auf die neuen Nummern umgeschrieben
+Einladungen, Versandlog    verschoben
+Reorder-Eintrag            "1 -> 3, 2 -> 1, 3 -> 2" geschrieben
+```
+
+Ein bloßes Warten auf eine Sperre ist auf dem Testserver unkritisch
+(`innodb_rollback_on_timeout = OFF`: nur die Abfrage wird zurückgenommen, die
+Transaktion bleibt offen). Auf Servern mit `ON` gälte dasselbe wie beim Deadlock.
+
+**Korrektur.** `autocommit = 0` statt `start transaction`: Dann wird auch nach
+einem Abbruch nichts mehr automatisch festgeschrieben. Als erste Zeile der
+Transaktion wird eine Markierung in eine temporäre InnoDB-Tabelle geschrieben
+(Engine ausdrücklich angegeben, falls ein Server temporäre Tabellen anders
+anlegt). Vor dem `commit` prüft das Modul per UPDATE, ob sie noch da ist — nicht
+per SELECT, den REDCap an eine Lese-Replik schicken könnte. Fehlt sie, wird der
+Rest zurückgerollt und gemeldet, dass der Lauf wiederholt werden muss.
+
+**Nachweis.** Derselbe Deadlock mit Record 8:
+
+```
+Ausgabe   visit_date: The database aborted this run because the same records were
+          being changed at the same time (deadlock). ... nothing was changed for
+          this field
+visits    Daten, Sperren, Einladungen (1/3), Versandlog (2), Feldhistorie:
+          unverändert; kein Reorder-Eintrag für visit_date
+followup  regulär umsortiert und protokolliert (eigene Transaktion)
+```
+
+Regression: Testskript PID 35 (Record 9) bestanden, Fehlerinjektion per Trigger
+(Record 10) unverändert, Feldhistorie PID 17 (Record 708) und PID 12 (Record 710)
+bestanden.
+
+---
+
 ## Bewusst nicht geändert
 
 **Materialisierung der neuen Nummerierung in einer temporären Tabelle.** Geprüft
@@ -475,10 +526,6 @@ Beschränkung auf Datumsfelder.
   klären (README).
 - `redcap_ehr_resource_instances` (EHR-Anbindung) und
   `redcap_project_migration_files` werden nicht umnummeriert.
-- Bei einem Deadlock wiederholt das Modul-Framework die einzelne Abfrage
-  (`ExternalModules::query()`). InnoDB hat die Transaktion dann bereits
-  zurückgerollt; der Rest des Laufs liefe ohne Transaktion weiter. Nicht
-  beobachtet, bei gleichzeitiger Bearbeitung desselben Records denkbar.
 - Feldhistorie: Ein Textwert, der selbst einen Zeilenumbruch gefolgt von
   `feldname =` enthält, könnte als zusätzliches Feld gelesen werden. Nur relevant,
   wenn der Name zu einem existierenden Feld eines anderen Formulars passt — dann
