@@ -486,6 +486,60 @@ bestanden.
 
 ---
 
+## 10. Zwei Datumsfelder derselben Wiederholungsgruppe
+
+**Befund.** Die Einstellung ist seit Meigens Fassung wiederholbar (`"repeatable":
+true`), gedacht für mehrere Wiederholungsgruppen. Nichts verhinderte aber zwei
+Felder derselben Gruppe; dann sortierte das zweite um, was das erste sortiert
+hatte („das letzte gewinnt"), und bei getrennten Transaktionen konnte nach einem
+Fehler die Sortierung nach dem falschen Feld stehen bleiben. Außerdem bot die
+Auswahl jedes Datumsfeld an, auch solche außerhalb jeder Wiederholungsgruppe, mit
+denen ein Lauf nichts bewirkt.
+
+**Korrektur** (Wunsch des Nutzers 2026-10-15: spätere Auswahlfelder sollen
+Datumsfelder einer schon gewählten Gruppe nicht mehr anbieten):
+
+- `dateFieldGroups()` ermittelt pro Datumsfeld seine Wiederholungsgruppen aus
+  `Project::getRepeatingFormsEvents()` und `eventsForms`: wiederholbares Event
+  oder wiederholbares Instrument in einem Event.
+- `redcap_module_configuration_settings()`: nur Felder mit Gruppe, Gruppe im
+  Optionstext. `"autocomplete": false`, weil sich im Suchfeld-Widget einzelne
+  Optionen nicht zuverlässig sperren lassen.
+- `redcap_every_page_top()` gibt auf der Modulverwaltung
+  (`ExternalModules/manager/project.php`) ein Skript aus, das bei jedem Neuaufbau
+  der Dialogzeilen (MutationObserver) und jeder Änderung die Optionen späterer
+  Einträge sperrt. Die gerade gewählte Option wird nie gesperrt, nur rot markiert:
+  jQuery liest eine gesperrte gewählte Option als leer, der Eintrag würde beim
+  Speichern stillschweigend verschwinden statt abgelehnt zu werden.
+- `validateSettings()` lehnt das Speichern ab; `reorder.php` überspringt einen
+  späteren Eintrag derselben Gruppe und Felder ohne Gruppe.
+
+**Nachweis.** PID 35 um zwei Testfelder ergänzt: `fu_extra_date` (Formular
+`followup_extra`, gehört wie `fu_date` zum wiederholbaren Event „Follow-up") und
+`birth_date` (`demographics`, keine Wiederholungsgruppe).
+
+```
+Dialog-Optionen   visit_date — Visits (repeating instrument, event Baseline)
+                  fu_date — Follow-up (repeating event)
+                  fu_extra_date — Follow-up (repeating event)
+                  (birth_date nicht angeboten)
+Speichern         visit_date + fu_date                 angenommen
+                  visit_date + fu_date + fu_extra_date abgelehnt: "fu_extra_date"
+                                                       belongs to the same repeating
+                                                       group as "fu_date" ...
+Lauf mit alter    fu_extra_date: Follow-up (repeating event) is already sorted by
+Einstellung       'fu_date' - skipped
+                  birth_date: not part of a repeating instrument or event - skipped
+```
+
+Das Dialog-Skript lief in einem Nachbau des Dialogs (jsdom, jQuery 3.7.1) mit
+genau der Ausgabe des Moduls: Öffnen mit zwei gespeicherten Einträgen, Eintrag
+hinzufügen, anderes Modul im selben Dialog, frühere Auswahl auf dieselbe Gruppe
+geändert (rot, Wert bleibt für `val()` lesbar), korrigiert, ersten Eintrag
+entfernt — alle Prüfungen bestanden. Im echten Browser noch nicht geklickt.
+
+---
+
 ## Bewusst nicht geändert
 
 **Materialisierung der neuen Nummerierung in einer temporären Tabelle.** Geprüft

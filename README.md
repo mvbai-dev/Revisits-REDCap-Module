@@ -47,13 +47,22 @@ mit Window Functions (MySQL ≥ 8.0, MariaDB ≥ 10.2).
 Eine einzige Projekteinstellung: **Date field the reordering should be based on**.
 
 Auswählbar sind nur Datums- und Datum/Zeit-Felder (`date_*`, `datetime_*`,
-`datetime_seconds_*`). Reine Zeitfelder, Zahlen und Text stehen bewusst nicht zur
-Auswahl — siehe [Sortierung](#sortierung).
+`datetime_seconds_*`), und davon nur solche, die zu einem wiederholbaren
+Instrument oder Event gehören. Reine Zeitfelder, Zahlen und Text stehen bewusst
+nicht zur Auswahl — siehe [Sortierung](#sortierung). Hinter jedem Feld steht seine
+Wiederholungsgruppe, z. B. „Visits (repeating instrument, event Baseline)".
 
-Die Einstellung ist wiederholbar, es können also mehrere Datumsfelder angegeben
-werden. Sie werden nacheinander abgearbeitet; enthält eine Wiederholungsgruppe
-mehrere davon, gewinnt das zuletzt verarbeitete. Darauf sollte man sich nicht
-verlassen — ein Feld pro Gruppe ist die saubere Konfiguration.
+Die Einstellung ist wiederholbar: ein Datumsfeld **pro Wiederholungsgruppe**, etwa
+eines für die Visiten und eines für ein wiederholbares Follow-up-Event. Ein Klick
+sortiert dann alle Gruppen. Zwei Felder derselben Gruppe sind nicht möglich:
+
+- Im Dialog werden in späteren Einträgen die Felder einer schon gewählten Gruppe
+  ausgegraut. Wird ein früherer Eintrag nachträglich so geändert, dass ein späterer
+  kollidiert, wird der spätere rot markiert.
+- Beim Speichern lehnt das Modul eine solche Kombination mit Erklärung ab
+  (`validateSettings()`).
+- Eine vorher gespeicherte Doppelbelegung wird beim Lauf erkannt: Der spätere
+  Eintrag wird mit Hinweis übersprungen.
 
 Sichtbar ist der Link nur für Nutzer mit **Design-Rechten** und für Superuser
 (Standardverhalten von `redcap_module_link_check_display()`).

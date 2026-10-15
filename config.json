@@ -27,7 +27,8 @@
             "key": "visitdate-field",
             "type": "field-list",
             "validation": "date",
-            "name": "Date field the reordering should be based on (e.g. visit_date). Only date and datetime fields can be selected.",
+            "name": "Date field the reordering should be based on (e.g. visit_date). Only date and datetime fields of a repeating instrument or event can be selected, one per repeating group.",
+            "autocomplete": false,
 						"repeatable": true
         }
     ]

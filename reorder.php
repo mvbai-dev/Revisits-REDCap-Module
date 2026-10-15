@@ -34,6 +34,9 @@ HTML;
     $affected_rows = array();
     $blank_notices = array();
     $log_notices = array();
+    // repeating group => date field that sorted it in this run
+    $fieldGroups = $module->dateFieldGroups($pid);
+    $sortedGroups = array();
     foreach ($module->getProjectSetting('visitdate-field') as $visitdateFieldName) {
        // Only date and datetime fields may be used. REDCap stores those as YYYY-MM-DD[ HH:MM[:SS]]
        // regardless of the display format, so the plain string sort below is chronological.
@@ -52,6 +55,21 @@ HTML;
                      . " (validation type '" . ($validationType === '' ? 'none' : $validationType) . "') - skipped";
            continue;
        }
+       // The configuration dialog and validateSettings() prevent two date fields of one repeating
+       // group; a setting saved before that check existed is caught here.
+       $groupsOfField = $fieldGroups[$visitdateFieldName] ?? array();
+       if (empty($groupsOfField)) {
+           $errors[] = "$visitdateFieldName: not part of a repeating instrument or event - skipped";
+           continue;
+       }
+       $alreadySorted = array_intersect_key($groupsOfField, $sortedGroups);
+       if (!empty($alreadySorted)) {
+           $groupKey = array_key_first($alreadySorted);
+           $errors[] = "$visitdateFieldName: {$groupsOfField[$groupKey]} is already sorted by"
+                     . " '{$sortedGroups[$groupKey]}' - skipped";
+           continue;
+       }
+       $sortedGroups += array_fill_keys(array_keys($groupsOfField), $visitdateFieldName);
 
        // All instances that actually exist in the repeating group the date field belongs to,
        // with the date value attached via LEFT JOIN. Enumerating the instances from the date

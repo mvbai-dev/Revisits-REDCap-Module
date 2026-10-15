@@ -4,6 +4,141 @@ namespace UNILE\Revisits;
 class Revisits extends \ExternalModules\AbstractExternalModule
 {
     const MOVES_TABLE = 'revisits_moves';
+    const DATE_SETTING = 'visitdate-field';
+
+    /**
+     * The repeating groups each date field of the project belongs to, as
+     * field => [group key => label]. A group is either a repeating event ("event:<id>") or a
+     * repeating instrument in one event ("form:<event id>:<form>"). A date field outside every
+     * repeating group is left out - reordering by it would do nothing.
+     */
+    public function dateFieldGroups($pid)
+    {
+        $Proj = new \Project($pid);
+        $repeating = $Proj->getRepeatingFormsEvents();
+        $result = array();
+        foreach ($Proj->metadata as $field => $attr) {
+            if (strpos((string) $attr['element_validation_type'], 'date') !== 0) continue;
+            $form = $attr['form_name'];
+            $formLabel = strip_tags($Proj->forms[$form]['menu'] ?? $form);
+            foreach ($repeating as $eventId => $forms) {
+                if (!in_array($form, $Proj->eventsForms[$eventId] ?? array(), true)) continue;
+                $eventLabel = strip_tags($Proj->eventInfo[$eventId]['name'] ?? $eventId);
+                if ($forms === 'WHOLE') {
+                    $result[$field]["event:$eventId"] = "$eventLabel (repeating event)";
+                } elseif (is_array($forms) && array_key_exists($form, $forms)) {
+                    $result[$field]["form:$eventId:$form"] = $Proj->longitudinal
+                        ? "$formLabel (repeating instrument, event $eventLabel)"
+                        : "$formLabel (repeating instrument)";
+                }
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Configuration dialog: only offer date fields that belong to a repeating group, and name the
+     * group next to each field.
+     */
+    public function redcap_module_configuration_settings($project_id, $settings)
+    {
+        if (empty($project_id)) return $settings;
+        $groups = $this->dateFieldGroups($project_id);
+        foreach ($settings as $i => $setting) {
+            if (($setting['key'] ?? null) !== self::DATE_SETTING || !isset($setting['choices'])) continue;
+            $choices = array();
+            foreach ($setting['choices'] as $choice) {
+                if ($choice['value'] === '' || $choice['value'] === null) { $choices[] = $choice; continue; }
+                if (empty($groups[$choice['value']])) continue;
+                $choice['name'] .= ' &mdash; ' . htmlspecialchars(implode('; ', $groups[$choice['value']]), ENT_QUOTES);
+                $choices[] = $choice;
+            }
+            $settings[$i]['choices'] = $choices;
+        }
+        return $settings;
+    }
+
+    /**
+     * In the configuration dialog, a date field whose repeating group is already covered by an
+     * earlier entry is not offered again in later entries (greyed out). If an earlier entry is
+     * changed afterwards so that a later one collides, the later one is marked red; saving is
+     * then refused by validateSettings().
+     */
+    public function redcap_every_page_top($project_id)
+    {
+        if (empty($project_id) || strpos($_SERVER['REQUEST_URI'] ?? '', '/ExternalModules/manager/project.php') === false) return;
+        $groups = array();
+        foreach ($this->dateFieldGroups($project_id) as $field => $fieldGroups) {
+            $groups[$field] = array_keys($fieldGroups);
+        }
+        ?>
+        <script>
+        (function () {
+            var groups = <?= json_encode($groups) ?>;
+            var prefix = <?= json_encode($this->PREFIX) ?>;
+            var settingName = <?= json_encode(self::DATE_SETTING . '____') ?>;
+            function apply() {
+                var modal = $('#external-modules-configure-modal');
+                if (modal.data('module') !== prefix) return;
+                var taken = {};
+                modal.find('select[name^="' + settingName + '"]').each(function () {
+                    var select = this;
+                    $(select).find('option').each(function () {
+                        if (!this.value) return;
+                        // never the selected option: jQuery reads a disabled selected option as
+                        // empty, so the entry would be dropped on save instead of being refused
+                        this.disabled = this.value !== select.value
+                            && (groups[this.value] || []).some(function (g) { return taken[g]; });
+                    });
+                    var collides = !!select.value && (groups[select.value] || []).some(function (g) { return taken[g]; });
+                    $(select).css('outline', collides ? '2px solid #c00' : '')
+                             .attr('title', collides ? 'This repeating group is already sorted by an earlier date field.' : '');
+                    if (select.value && !collides) {
+                        (groups[select.value] || []).forEach(function (g) { taken[g] = true; });
+                    }
+                });
+            }
+            $(function () {
+                var modal = document.getElementById('external-modules-configure-modal');
+                if (!modal) return;
+                // The dialog rebuilds its rows when it opens and when entries are added or removed.
+                var pending = false;
+                new MutationObserver(function () {
+                    if (pending) return;
+                    pending = true;
+                    setTimeout(function () { pending = false; apply(); }, 0);
+                }).observe(modal, { childList: true, subtree: true });
+                $(modal).on('change', 'select', apply);
+            });
+        })();
+        </script>
+        <?php
+    }
+
+    /**
+     * Refuses to save two date fields of the same repeating group - the second would re-sort what
+     * the first had sorted ("last one wins").
+     */
+    public function validateSettings($settings)
+    {
+        $pid = $this->getProjectId();
+        if (empty($pid)) return null;
+        $groups = $this->dateFieldGroups($pid);
+        $seen = array();
+        $errors = array();
+        foreach ((array) ($settings[self::DATE_SETTING] ?? array()) as $field) {
+            if ($field === '' || $field === null) continue;
+            foreach ($groups[$field] ?? array() as $key => $label) {
+                if (isset($seen[$key])) {
+                    $errors[] = "\"$field\" belongs to the same repeating group as \"{$seen[$key]}\" ($label)."
+                              . " Each repeating group can only be sorted by one date field.";
+                } else {
+                    $seen[$key] = $field;
+                }
+            }
+        }
+        return empty($errors) ? null : implode("\n", array_unique($errors));
+    }
 
     /**
      * REDCap builds module links absolutely from redcap_base_url, while its own links are relative.
