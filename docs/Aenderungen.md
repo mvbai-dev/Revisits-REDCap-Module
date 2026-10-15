@@ -400,6 +400,41 @@ Checkbox-Eintrag.
 
 ---
 
+## 8. Login-Aufforderung beim Menüpunkt „Reorder Visits"
+
+**Befund.** Nutzer auf dem Testserver wurden beim Klick auf den Menüpunkt zum
+Login aufgefordert. `redcap_log_view` zeigt bei jedem Vorkommen dasselbe Muster:
+Seitenaufrufe von `<client-lan>` (Heimnetz-Lesezeichen `http://<server-lan>/`),
+dann `LOGIN_SUCCESS` auf `ExternalModules/index.php` von `<client-tailscale>`
+(Tailscale), gleicher Browser. Die Basis-URL ist `http://<server-tailscale>/redcap/`.
+`ExternalModules::getPageUrl()` baut Modul-Links aus `APP_URL_EXTMOD`, also
+absolut aus der Basis-URL; REDCaps eigene Links sind relativ.
+
+**Auswirkung.** Auf jedem Server, der unter mehr als einer Adresse erreichbar ist,
+verlässt der Menüpunkt die Adresse des Nutzers; das Session-Cookie gilt dort
+nicht. Kein Datenproblem, aber auf einem Produktivserver mit internem Alias für
+alle Anwender lästig.
+
+**Korrektur.** `redcap_module_link_check_display()` überschrieben: erst die
+Rechteprüfung des Frameworks, dann Schema und Host aus `$link['url']` entfernt.
+Das Projektmenü übernimmt den zurückgegebenen Link unverändert in den `href`
+(`manager/templates/hooks/every_page_top.php`, `getLinkIconHtml()`); die
+Zugriffsprüfung beim Aufruf der Seite (`ExternalModules/index.php`) wertet nur
+aus, ob überhaupt ein Link zurückkommt.
+
+**Nachweis.**
+
+```
+vom Framework:  http://<server-tailscale>/redcap/redcap_v17.2.1/ExternalModules/?prefix=revisits&page=reorder
+nach dem Hook:  /redcap/redcap_v17.2.1/ExternalModules/?prefix=revisits&page=reorder
+Menü:           <a href="/redcap/redcap_v17.2.1/ExternalModules/?prefix=revisits&page=reorder&pid=35">
+```
+
+Betrifft nur den Menü-Link dieses Moduls; Links anderer Module und Links in
+REDCap-E-Mails bleiben absolut.
+
+---
+
 ## Bewusst nicht geändert
 
 **Materialisierung der neuen Nummerierung in einer temporären Tabelle.** Geprüft

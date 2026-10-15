@@ -6,6 +6,21 @@ class Revisits extends \ExternalModules\AbstractExternalModule
     const MOVES_TABLE = 'revisits_moves';
 
     /**
+     * REDCap builds module links absolutely from redcap_base_url, while its own links are relative.
+     * On a server reachable under several host names (internal alias, external name, IP) the menu
+     * link would move the user to the base URL's host, where their session cookie does not apply,
+     * and REDCap asks for a new login. A root-relative link keeps the host the user is on.
+     */
+    public function redcap_module_link_check_display($project_id, $link)
+    {
+        $link = parent::redcap_module_link_check_display($project_id, $link);
+        if (is_array($link) && isset($link['url'])) {
+            $link['url'] = preg_replace('#^https?://[^/]+#i', '', $link['url']);
+        }
+        return $link;
+    }
+
+    /**
      * Other REDCap tables that store an instance number for record data. Each entry describes how
      * to reach a row's project, event and form; the form decides, for a repeating instrument,
      * whether the row belongs to the reordered form or to another one with its own numbering.

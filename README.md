@@ -127,6 +127,13 @@ Bewusst unverändert bleiben:
 Nicht zuordenbar und deshalb ebenfalls unverändert sind Einträge, deren Felder aus
 mehreren Formularen stammen; die Ausgabeseite meldet ihre Anzahl.
 
+**Menü-Link relativ.** REDCap baut Links von External Modules absolut aus der
+Basis-URL (`redcap_base_url`), eigene Links dagegen relativ. Ist ein Server unter
+mehreren Adressen erreichbar, würde der Menüpunkt den Nutzer auf die Adresse der
+Basis-URL umleiten, wo sein Session-Cookie nicht gilt, und REDCap verlangt einen
+neuen Login. Das Modul gibt seinen Link deshalb ohne Schema und Host zurück
+(`redcap_module_link_check_display()` in `Revisits.php`).
+
 ## Grenzen und Risiken
 
 **Nicht rückgängig zu machen.** Das Log zeigt, was passiert ist, kann es aber
