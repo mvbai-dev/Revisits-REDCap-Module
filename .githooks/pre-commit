@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Blockiert Commits, die echte IPs oder Tailscale-Hostnamen hinzufügen.
+# Nur Platzhalter verwenden: <server-lan>, <server-tailscale>, https://redcap.example/redcap/
+# Notfalls (bewusst!) umgehen: git commit --no-verify
+dir=$(dirname "$0")
+added=$(git diff --cached -U0 --no-color --diff-filter=ACMR -- . ':(exclude).githooks/*' | grep -E '^\+[^+]' )
+if ! out=$(printf '%s\n' "$added" | "$dir/check-netzdetails.sh"); then
+  echo "pre-commit: Netzdetails im Diff gefunden – bitte durch Platzhalter ersetzen:" >&2
+  printf '%s\n' "$out" >&2
+  exit 1
+fi

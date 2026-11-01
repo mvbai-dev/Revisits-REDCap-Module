@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Prüft auch die Commit-Message auf echte IPs / Tailscale-Hostnamen.
+dir=$(dirname "$0")
+if ! out=$(grep -v '^#' "$1" | "$dir/check-netzdetails.sh"); then
+  echo "commit-msg: Netzdetails in der Commit-Message – bitte durch Platzhalter ersetzen:" >&2
+  printf '%s\n' "$out" >&2
+  exit 1
+fi
