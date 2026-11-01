@@ -1,5 +1,5 @@
 <?php
-/** @var \\UNILE\\Revisits\\Revisits $module */
+/** @var \UNILE\Revisits\Revisits $module */
 
 namespace UNILE\Revisits;
 
