@@ -1,0 +1,25 @@
+# PHPStan-Konfiguration (siehe CLAUDE.md, CI-Job "PHPStan").
+# REDCap selbst ist nicht im Repo; phpstan/redcap-stubs.php deklariert die
+# genutzten REDCap-/Framework-Teile als Platzhalter.
+parameters:
+    level: 5
+    paths:
+        - .
+    excludePaths:
+        analyse:
+            - phpstan/
+            - tests (?)
+            - .github (?)
+            - .githooks (?)
+    bootstrapFiles:
+        - phpstan/redcap-stubs.php
+    # Diese Konstanten setzt REDCap je nach Seite unterschiedlich.
+    dynamicConstantNames:
+        - APP_PATH_WEBROOT
+        - APP_PATH_DOCROOT
+        - EDOC_PATH
+        - PAGE
+        - PAGE_FULL
+        - PROJECT_ID
+        - USERID
+        - SUPER_USER

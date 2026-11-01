@@ -1,4 +1,5 @@
 <?php
+/** @var \\UNILE\\Revisits\\Revisits $module */
 
 namespace UNILE\Revisits;
 

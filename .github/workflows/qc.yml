@@ -72,3 +72,17 @@ jobs:
           tar xzf "$tgz" gitleaks
       - name: Gesamte Git-Historie scannen
         run: ./gitleaks git --redact --verbose --exit-code 1 .
+
+  phpstan:
+    name: PHPStan
+    runs-on: ubuntu-latest
+    env:
+      PHPSTAN_VERSION: 2.1.11
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHPStan installieren (Version fest)
+        run: composer global require --no-interaction --no-progress "phpstan/phpstan:$PHPSTAN_VERSION"
+      - name: Analyse (Konfiguration in phpstan.neon)
+        run: |
+          "$(composer global config bin-dir --absolute --quiet)/phpstan" --version
+          "$(composer global config bin-dir --absolute --quiet)/phpstan" analyse --no-progress --error-format=github --memory-limit=1G
