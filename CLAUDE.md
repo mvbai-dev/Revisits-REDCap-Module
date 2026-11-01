@@ -29,6 +29,7 @@ Jeden Punkt gegen den echten REDCap-Quellcode bzw. per Test prüfen, nicht aus d
 4. **Richtiger Datensatz?** Im Survey-Kontext `$fetched` nicht blind vertrauen (öffentlicher Link: vorläufig „1“); temporäre IDs (`isTemporaryRecordId`) beachten; `Records::recordExists` nutzen.
 5. **Datensparsamkeit im Browser:** Was steht im Seitenquelltext oder in der AJAX-Antwort, das der Betrachter ohne Modul nicht sehen könnte? Feldnamen, Ausfüllstatus, abgeleitete Werte (Branching!) anderer Instrumente gehören auf den Server.
 6. **Benutzerrechte:** Formularrechte, DAGs, Exportrechte prüfen und bei Unklarheit verweigern (fail closed). Fallstrick: `getRights()` liefert `null` für Benutzernamen mit Großbuchstaben, daher `UserRights::getPrivileges()` mit kleingeschriebenem Namen und `convertFormRightsToArray($r['data_entry'])` verwenden.
+   **Jede Modulseite braucht eine eigene Rechteprüfung** ganz oben (für GET und POST). Die Standardprüfung des Frameworks (Design-Rechte) läuft nur, wenn `page=` exakt dem Link aus `config.json` entspricht; `page=./seite` umgeht sie (nachgewiesen in REDCap 17.2.1). Testen mit `./seite`, `.//seite`, `../<prefix>_vX/seite`.
 7. **Logging/Audit:** Umgehen Schreibzugriffe das REDCap-Logging? Dann selbst loggen (`$this->log`, `enable-no-auth-logging`).
 8. **Befunde testen**, nicht nur beheben: Leak-Check im Seitenquelltext (z. B. Playwright), Rechtestufen, Regression.
 
