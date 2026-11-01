@@ -540,6 +540,71 @@ entfernt — alle Prüfungen bestanden. Im echten Browser noch nicht geklickt.
 
 ---
 
+## 11. Rechteprüfung umgehbar, ungefilterte Ausgabe
+
+**Befund** (Sicherheitsreview 2026-11-01). Das Modul hatte keine eigene
+Rechteprüfung. Es verließ sich auf das Framework, das Projektseiten
+standardmäßig nur Superusern und Nutzern mit Design-Rechten zeigt
+(`AbstractExternalModule::redcap_module_link_check_display()`). In
+`ExternalModules/index.php` wird diese Prüfung aber nur ausgeführt, wenn der
+Parameter `page` exakt zum Link aus `config.json` passt. Andernfalls gilt die
+Seite als „nicht in config.json definiert" und wird ohne Prüfung geladen
+(„for backward compatibility"). Varianten wie `./reorder` führen über
+`getSafePath()` zur selben Datei, passen aber nicht zum Link.
+
+Reproduziert mit einem Nutzer, der im Testprojekt nur Leserechte hatte (kein
+Design, keine Benutzerrechte, kein Import):
+
+```
+reorder, reorder.php                        You do not have permission to access this page.
+./reorder, .//reorder,
+../revisits_v1.0.0/reorder                  Seite mit Button
+POST page=./reorder                         Lauf ausgeführt, Modul-Log unter diesem Nutzer
+```
+
+Damit konnte jeder Projektnutzer alle Instanzen aller Records umnummerieren und
+die Feldhistorie umschreiben. Auch Nutzer mit Design-Rechten, die einer DAG
+zugeordnet sind, erreichten Records anderer DAGs, weil ein Lauf immer das ganze
+Projekt umfasst.
+
+Nebenbefunde: Feldnamen aus der Einstellung, Fehlermeldungen und die Ergebnisliste
+wurden ungefiltert ausgegeben. REDCap prüft gespeicherte Einstellungswerte nicht
+gegen die Auswahlliste, ein Design-Nutzer hätte also HTML oder Skript speichern
+können, das bei anderen Admins ausgeführt wird. Außerdem fehlten im Dialog-Skript
+die `JSON_HEX_*`-Flags (praktisch folgenlos, weil Feld- und Formularnamen nur
+`[a-z0-9_]` enthalten).
+
+**Korrektur.**
+
+- `Revisits::userMayReorder()` lässt nur Superuser und Nutzer mit Design-Rechten
+  ohne DAG-Zuordnung und mit nicht abgelaufenem Zugang zu. Die Rechte kommen aus
+  `UserRights::getPrivileges()` mit kleingeschriebenem Benutzernamen, weil
+  `getRights()` bei Großbuchstaben `null` liefert. Wenn etwas fehlt, wird
+  verweigert.
+- `reorder.php` ruft die Prüfung als Erstes auf, für GET und POST, und antwortet
+  sonst mit 403. `redcap_module_link_check_display()` nutzt dieselbe Prüfung, statt
+  die Standardprüfung des Frameworks aufzurufen. Link und Seite gelten damit für
+  dieselben Nutzer.
+- Alle Ausgaben in `reorder.php` gehen durch `htmlspecialchars`.
+- Die drei `json_encode()` im Dialog-Skript bekommen
+  `JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT`.
+
+**Nachweis.** Testprojekt mit vier Nutzern, je fünf Schreibweisen von `page`,
+dazu Menülink und POST mit gültigem CSRF-Token:
+
+```
+nur Leserechte                  alle 5 verweigert   Link: nein   POST: verweigert
+Design + DAG                    alle 5 verweigert   Link: nein   POST: verweigert
+Design, keine DAG               alle 5 Zugriff      Link: ja     POST: Lauf ausgeführt
+Design, Name mit Großbuchst.    alle 5 Zugriff      Link: ja     POST: Lauf ausgeführt
+```
+
+Mit der Einstellung `["visit_date", "<img src=x onerror=alert(1)>"]` erschien der
+Wert in GET und POST nur maskiert (`&lt;img …`), nie roh. Das Dialog-Skript liefert
+weiterhin gültiges JSON. Im Apache-Fehlerlog gab es keine Einträge.
+
+---
+
 ## Bewusst nicht geändert
 
 **Materialisierung der neuen Nummerierung in einer temporären Tabelle.** Geprüft
@@ -578,6 +643,10 @@ Beschränkung auf Datumsfelder.
 - Bezüge auf feste Instanznummern in der Projektlogik (`[feld][1]`, Bedingungen,
   Reportfilter) zeigen nach dem Umsortieren auf andere Visiten; vor der Aktivierung
   klären (README).
+- Zu prüfen: Das Framework füllt die Auswahl für `"validation": "date"` mit
+  `element_validation_type LIKE 'date_%'`. Datum/Zeit-Felder (`datetime_*`) würden
+  dann im Dialog gar nicht angeboten, obwohl `reorder.php` sie verarbeitet. Bisher
+  nur im Code gelesen, nicht im Dialog nachgeprüft.
 - `redcap_ehr_resource_instances` (EHR-Anbindung) und
   `redcap_project_migration_files` werden nicht umnummeriert.
 - Feldhistorie: Ein Textwert, der selbst einen Zeilenumbruch gefolgt von

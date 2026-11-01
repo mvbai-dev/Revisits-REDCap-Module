@@ -64,8 +64,10 @@ sortiert dann alle Gruppen. Zwei Felder derselben Gruppe sind nicht möglich:
 - Eine vorher gespeicherte Doppelbelegung wird beim Lauf erkannt: Der spätere
   Eintrag wird mit Hinweis übersprungen.
 
-Sichtbar ist der Link nur für Nutzer mit **Design-Rechten** und für Superuser
-(Standardverhalten von `redcap_module_link_check_display()`).
+Ausführen dürfen die Umsortierung nur **Superuser** und Nutzer mit
+**Design-Rechten**, die **keiner Data Access Group** zugeordnet sind. Nur diese sehen
+den Link, und die Seite prüft das bei jedem Aufruf selbst (siehe
+[Sicherheit](#sicherheit)).
 
 ## Sortierung
 
@@ -203,6 +205,76 @@ zeitlicher Reihenfolge erfasst wurden — nicht systemweit aktivieren.
 untereinander ihre Reihenfolge. Die Ausgabe meldet, wie viele das waren. Eine
 halb ausgefüllte Visite bekommt dadurch eine neue Nummer, die fachlich nichts
 bedeutet.
+
+## Sicherheit
+
+Sicherheitsreview vom 2026-11-01 (REDCap 17.2.1). Alle Punkte wurden am
+Framework-Quellcode und mit echten HTTP-Aufrufen auf dem Testserver geprüft.
+Einzelheiten stehen in [`docs/Aenderungen.md`](docs/Aenderungen.md), Abschnitt 11.
+
+**Angriffsfläche.** Es gibt nur die Projektseite `reorder` (GET zeigt den Button,
+POST führt aus), dazu den Konfigurationsdialog. Das Modul hat keine Seiten ohne
+Login, keine AJAX-Endpunkte, keinen Cron und keine API.
+
+**Wer darf ausführen?** Superuser sowie Nutzer mit Design-Rechten ohne
+DAG-Zuordnung und mit nicht abgelaufenem Projektzugang. Die Prüfung steht in
+`Revisits::userMayReorder()` und gilt für den Menülink und für jeden Seitenaufruf.
+Kann sie die Rechte nicht ermitteln, verweigert sie.
+
+- *Warum eine eigene Prüfung:* Die Seitenprüfung des Frameworks greift nur, wenn
+  der Parameter `page` exakt dem Link aus `config.json` entspricht. Mit
+  `page=./reorder` erreichte ein Nutzer mit reinen Leserechten die Seite und konnte
+  die Umsortierung auslösen (vor der Korrektur reproduziert).
+- *Warum keine DAG-Nutzer:* Ein Lauf umfasst immer alle Records des Projekts, auch
+  die anderer DAGs.
+- Die Rechte werden über `UserRights::getPrivileges()` mit kleingeschriebenem
+  Benutzernamen gelesen. `getRights()` liefert für Namen mit Großbuchstaben `null`.
+
+**Eingaben und SQL.** Alle Werte gehen als Parameter in die Queries. Die
+Tabellennamen kommen von REDCap (`getDataTable()`, `getLogEventTable()`) oder aus
+einer festen Liste im Code. Instanznummern werden als Ganzzahlen verarbeitet.
+CSRF-Schutz übernimmt das Framework (`framework-version: 17`).
+
+**Ausgabe.** Alles, was die Seite anzeigt, geht durch `htmlspecialchars`, auch
+Feldnamen aus der Einstellung, denn REDCap prüft gespeicherte Einstellungswerte
+nicht gegen die Auswahlliste. Werte im `<script>` des Konfigurationsdialogs werden
+mit `JSON_HEX_TAG|AMP|APOS|QUOT` eingebettet.
+
+**Daten im Browser.** Die Seite zeigt nur Zahlen (umgestellte Felder,
+Log-Einträge) und Feldnamen. Das Dialog-Skript enthält Feld- und Gruppennamen und
+wird nur auf der Modulverwaltungsseite ausgeliefert, die selbst Design-Rechte
+verlangt.
+
+**Logging.** Jeder Lauf wird im Projekt-Log festgehalten (ein Eintrag pro Record
+und Event, mit der alten und neuen Nummerierung, unter dem ausführenden
+Benutzer). Zusätzlich gibt es einen Eintrag pro Datumsfeld im Modul-Log.
+
+**Restrisiken**
+
+- **Das Audit-Log wird verändert.** Die Feldhistorie (`data_values` in
+  `redcap_log_event*`) wird auf die neuen Instanznummern umgeschrieben (siehe
+  [Logging](#logging)). Der ursprüngliche Zustand lässt sich aus den
+  „Reorder"-Einträgen rekonstruieren, steht aber nicht mehr wörtlich im Log. In
+  Studien unter GCP oder 21 CFR Part 11 vor der Aktivierung mit der
+  Studienleitung klären.
+- **Feste Instanzbezüge** zeigen danach auf andere Visiten (siehe
+  [Grenzen und Risiken](#grenzen-und-risiken)).
+- **Fehlermeldungen der Datenbank** werden berechtigten Nutzern angezeigt (maskiert)
+  und können Tabellen- oder Spaltennamen enthalten.
+- **Nicht rückgängig zu machen.** Wer Design-Rechte hat, kann die Umsortierung
+  auslösen. Design-Rechte deshalb nur gezielt vergeben.
+
+**Testfälle** (Testprojekt mit je einem Nutzer pro Rechtestufe, Seitenaufruf mit
+`reorder`, `reorder.php`, `./reorder`, `.//reorder`,
+`../revisits_v1.0.0/reorder`, Menülink und POST):
+
+| Nutzer | Ergebnis |
+|---|---|
+| nur Leserechte, kein Design | überall verweigert, kein Link |
+| Design, aber DAG-zugeordnet | überall verweigert, kein Link |
+| Design, keine DAG | Zugriff, Link, Lauf ausgeführt |
+| Design, Benutzername mit Großbuchstaben | Zugriff, Link, Lauf ausgeführt |
+| Einstellung mit `<img src=x onerror=…>` | nur maskiert ausgegeben (GET und POST) |
 
 ## Entwicklung
 

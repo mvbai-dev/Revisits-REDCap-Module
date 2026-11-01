@@ -5,6 +5,8 @@ class Revisits extends \ExternalModules\AbstractExternalModule
 {
     const MOVES_TABLE = 'revisits_moves';
     const DATE_SETTING = 'visitdate-field';
+    // json_encode() flags for values placed inside a <script> block
+    const JSON_IN_SCRIPT = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
 
     /**
      * The repeating groups each date field of the project belongs to, as
@@ -74,9 +76,9 @@ class Revisits extends \ExternalModules\AbstractExternalModule
         ?>
         <script>
         (function () {
-            var groups = <?= json_encode($groups) ?>;
-            var prefix = <?= json_encode($this->PREFIX) ?>;
-            var settingName = <?= json_encode(self::DATE_SETTING . '____') ?>;
+            var groups = <?= json_encode($groups, self::JSON_IN_SCRIPT) ?>;
+            var prefix = <?= json_encode($this->PREFIX, self::JSON_IN_SCRIPT) ?>;
+            var settingName = <?= json_encode(self::DATE_SETTING . '____', self::JSON_IN_SCRIPT) ?>;
             function apply() {
                 var modal = $('#external-modules-configure-modal');
                 if (modal.data('module') !== prefix) return;
@@ -141,6 +143,34 @@ class Revisits extends \ExternalModules\AbstractExternalModule
     }
 
     /**
+     * Who may run the reordering: super users, and users with Project Design and Setup rights who
+     * are not assigned to a Data Access Group (the reordering always covers every record of the
+     * project). Everyone else is refused - also when rights cannot be determined (fail closed).
+     *
+     * reorder.php calls this itself. The framework's own page check only applies when the page
+     * parameter matches the config.json link exactly; "page=./reorder" reaches the same file
+     * without that check (reproduced with a read-only user on REDCap 17.2.1).
+     *
+     * UserRights::getPrivileges() is used instead of the framework's getRights(), which returns
+     * null for user names containing upper-case letters. getPrivileges() keys users in lower case.
+     */
+    public function userMayReorder($pid)
+    {
+        if (\ExternalModules\ExternalModules::isSuperUser()) return true;
+        $pid = (int) $pid;
+        $username = strtolower((string) \ExternalModules\ExternalModules::getUsername());
+        if ($pid <= 0 || $username === '') return false;
+        $rights = \UserRights::getPrivileges($pid, $username)[$pid][$username] ?? null;
+        if (!is_array($rights)) return false;
+        if (empty($rights['design'])) return false;
+        if (!empty($rights['group_id'])) return false;
+        if (!empty($rights['expiration']) && $rights['expiration'] <= date('Y-m-d')) return false;
+        return true;
+    }
+
+    /**
+     * Shows the menu link only to users who may run the reordering (see userMayReorder()).
+     *
      * REDCap builds module links absolutely from redcap_base_url, while its own links are relative.
      * On a server reachable under several host names (internal alias, external name, IP) the menu
      * link would move the user to the base URL's host, where their session cookie does not apply,
@@ -148,7 +178,7 @@ class Revisits extends \ExternalModules\AbstractExternalModule
      */
     public function redcap_module_link_check_display($project_id, $link)
     {
-        $link = parent::redcap_module_link_check_display($project_id, $link);
+        if (!$this->userMayReorder($project_id)) return null;
         if (is_array($link) && isset($link['url'])) {
             $link['url'] = preg_replace('#^https?://[^/]+#i', '', $link['url']);
         }

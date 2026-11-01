@@ -4,16 +4,29 @@ namespace UNILE\Revisits;
 
 use ExternalModules\ExternalModules;
 
+// Own rights check, independent of the framework's link check (see Revisits::userMayReorder()).
+if (!$module->userMayReorder($module->getProjectId())) {
+    http_response_code(403);
+    echo "<h2>Re-Order visits</h2>"
+       . "<p>You do not have permission to re-order visits. This requires Project Design and Setup"
+       . " rights and no assignment to a Data Access Group.</p>";
+    return;
+}
+
+// Everything shown on this page goes through $h - setting values are not validated by REDCap
+// when they are saved, and error messages may contain arbitrary text.
+$h = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); };
+
 if($_SERVER['REQUEST_METHOD'] != 'POST'){ // show form as a simple button
-    $field_names = $module->getProjectSetting('visitdate-field');
+    $field_names = (array) $module->getProjectSetting('visitdate-field');
     $field_names_text = implode(',', $field_names);
     echo "<h2>Re-Order visits</h2>";
     if (!$field_names_text) {
         echo "Please configure at least one visit date field in the module configuration first!";
     } else {
         echo "<form method=\"post\">"
-           . "<input type=\"hidden\" name=\"redcap_csrf_token\" value=\"" . $module->getCSRFToken() . "\">"
-           . "<button>Re-order all visits based on $field_names_text</button></form>";
+           . "<input type=\"hidden\" name=\"redcap_csrf_token\" value=\"" . $h($module->getCSRFToken()) . "\">"
+           . "<button>Re-order all visits based on " . $h($field_names_text) . "</button></form>";
         echo <<<HTML
 				<p><b>READ THIS:</b> This will try to re-order all repeatable events and repeatable instruments based 
 				   on the field names above. Instruments/events which contain none of these fields should not be 
@@ -37,7 +50,7 @@ HTML;
     // repeating group => date field that sorted it in this run
     $fieldGroups = $module->dateFieldGroups($pid);
     $sortedGroups = array();
-    foreach ($module->getProjectSetting('visitdate-field') as $visitdateFieldName) {
+    foreach ((array) $module->getProjectSetting('visitdate-field') as $visitdateFieldName) {
        // Only date and datetime fields may be used. REDCap stores those as YYYY-MM-DD[ HH:MM[:SS]]
        // regardless of the display format, so the plain string sort below is chronological.
        // For any other field type the sort would be lexical and therefore meaningless
@@ -223,18 +236,18 @@ HTML;
        }
     }
     echo "<h2>Re-Order visits</h2>";
-    echo "<p>Data table used for this project: <b>$dataTable</b></p>";
+    echo "<p>Data table used for this project: <b>" . $h($dataTable) . "</b></p>";
     if (!empty($affected_rows)) {
-        echo "Numbers of reordered individual fields:<br>" . implode('<br>', $affected_rows);
+        echo "Numbers of reordered individual fields:<br>" . implode('<br>', array_map($h, $affected_rows));
     }
     if (!empty($log_notices)) {
-        echo "<br><br>" . implode('<br>', $log_notices);
+        echo "<br><br>" . implode('<br>', array_map($h, $log_notices));
     }
     if (!empty($blank_notices)) {
-        echo "<br><br>" . implode('<br>', $blank_notices);
+        echo "<br><br>" . implode('<br>', array_map($h, $blank_notices));
     }
     if (!empty($errors)) {
-        echo "<br><br>Sorry, some errors occured:<br>" . implode('<br>', $errors);
+        echo "<br><br>Sorry, some errors occured:<br>" . implode('<br>', array_map($h, $errors));
     }
 }
 
