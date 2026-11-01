@@ -11,9 +11,11 @@
  * - Framework-Methoden von AbstractExternalModule sind einzeln deklariert (kein
  *   __call): Tippfehler in Methodennamen des eigenen Moduls fallen weiter auf.
  *   Nutzt ein Modul eine neue Framework-Methode, hier ergänzen.
- * - REDCap-Core-Klassen (REDCap, UserRights, ...) erlauben jede statische
- *   Methode (__callStatic) und liefern mixed - deren Signaturen prüft PHPStan
- *   damit nicht, nur unseren Umgang mit den Ergebnissen.
+ * - Auch REDCap-Core-Klassen (REDCap, UserRights, Project, ...) deklarieren
+ *   nur die tatsächlich genutzten Methoden und Eigenschaften (PHPStan wertet
+ *   __call/__callStatic nicht als Freibrief). Rückgaben sind meist mixed:
+ *   geprüft wird unser Code, nicht REDCaps Signaturen. Neue REDCap-Aufrufe
+ *   hier ergänzen.
  */
 
 namespace ExternalModules {
@@ -64,45 +66,124 @@ namespace ExternalModules {
 
     class ExternalModules
     {
-        /** @param array<mixed> $args @return mixed */
-        public static function __callStatic(string $name, array $args) { return null; }
+        public static function getREDCapProjectObject($projectId): \Project { return new \Project(); }
+        public static function getUsername(): ?string { return null; }
+        public static function isSuperUser(): bool { return false; }
+        public static function isTemporaryRecordId($recordId): bool { return false; }
     }
 }
 
 namespace {
 
-    /** REDCap-Core-Klassen mit statischen Methoden. */
-    class REDCap { /** @param array<mixed> $a @return mixed */ public static function __callStatic(string $n, array $a) { return null; } }
-    class UserRights { /** @param array<mixed> $a @return mixed */ public static function __callStatic(string $n, array $a) { return null; } }
-    class Records { /** @param array<mixed> $a @return mixed */ public static function __callStatic(string $n, array $a) { return null; } }
-    class Logging { /** @param array<mixed> $a @return mixed */ public static function __callStatic(string $n, array $a) { return null; } }
-    class ToDoList { /** @param array<mixed> $a @return mixed */ public static function __callStatic(string $n, array $a) { return null; } }
-    class ActionTags { /** @param array<mixed> $a @return mixed */ public static function __callStatic(string $n, array $a) { return null; } }
-    class Survey { /** @param array<mixed> $a @return mixed */ public static function __callStatic(string $n, array $a) { return null; } }
-    class System { /** @param array<mixed> $a @return mixed */ public static function __callStatic(string $n, array $a) { return null; } }
-    class Files { /** @param array<mixed> $a @return mixed */ public static function __callStatic(string $n, array $a) { return null; } }
-
-    /** REDCap-Objekte: beliebige Methoden und Eigenschaften. */
-    class Project
+    /** REDCap-Core-Klassen: nur die tatsächlich genutzten statischen Methoden. */
+    class REDCap
     {
-        public function __construct($projectId = null) {}
-        /** @param array<mixed> $a @return mixed */
-        public function __call(string $n, array $a) { return null; }
         /** @return mixed */
-        public function __get(string $n) { return null; }
+        public static function getData(...$args) { return null; }
+        /** @return mixed */
+        public static function saveData(...$args) { return null; }
+        /** @return mixed */
+        public static function getDataDictionary(...$args) { return null; }
+        /** @return mixed */
+        public static function getEventNames(...$args) { return null; }
+        /** @return mixed */
+        public static function getLogEventTable(...$args) { return null; }
+        /** @return mixed */
+        public static function getRecordIdField(...$args) { return null; }
+        /** @return mixed */
+        public static function getSurveyLink(...$args) { return null; }
+        /** @return mixed */
+        public static function reserveNewRecordId(...$args) { return null; }
+        /** @return mixed */
+        public static function addFileToRepository(...$args) { return null; }
+        /** @return mixed */
+        public static function evaluateLogic(...$args) { return null; }
+    }
+    class UserRights
+    {
+        /** @return mixed */
+        public static function getPrivileges(...$args) { return null; }
+        /** @return mixed */
+        public static function convertFormRightsToArray(...$args) { return null; }
+        /** @return mixed */
+        public static function hasDataViewingRights(...$args) { return null; }
+    }
+    class Records
+    {
+        /** @return mixed */
+        public static function recordExists(...$args) { return null; }
+        /** @return mixed */
+        public static function getRecordGroupId(...$args) { return null; }
+    }
+    class Logging
+    {
+        /** @return mixed */
+        public static function logEvent(...$args) { return null; }
+    }
+    class ToDoList
+    {
+        /** @return mixed */
+        public static function insertAction(...$args) { return null; }
+    }
+    class ActionTags
+    {
+        /** @return mixed */
+        public static function containsActionTags(...$args) { return null; }
+    }
+    class Survey
+    {
+        /** @return mixed */
+        public static function getPageFields(...$args) { return null; }
     }
 
+    /** REDCap-Projektobjekt: nur die genutzten Eigenschaften und Methoden. */
+    class Project
+    {
+        /** @var array<string, array<string, mixed>> */
+        public $metadata = [];
+        /** @var array<string, array<string, mixed>> */
+        public $forms = [];
+        /** @var array<string, mixed> */
+        public $surveys = [];
+        /** @var array<int|string, array<int, string>> */
+        public $eventsForms = [];
+        /** @var array<int|string, array<string, mixed>> */
+        public $eventInfo = [];
+        /** @var bool */
+        public $longitudinal = false;
+        public function __construct($projectId = null) {}
+        /** @return mixed */
+        public function getRepeatingFormsEvents() { return []; }
+        /** @return bool */
+        public function isRepeatingForm($eventId, $form) { return false; }
+        /** @return bool */
+        public function isRepeatingEvent($eventId) { return false; }
+        /** @return mixed */
+        public function getUniqueEventNames($eventId = null) { return null; }
+    }
+
+    /** REDCap-Mailobjekt: nur die genutzten Methoden. */
     class Message
     {
         /** @var mixed */
         public $ErrorInfo;
         public function __construct($projectId = null) {}
-        /** @param array<mixed> $a @return mixed */
-        public function __call(string $n, array $a) { return null; }
+        public function setTo($v): void {}
+        public function setCc($v): void {}
+        public function setBcc($v): void {}
+        public function setFrom($v): void {}
+        public function setFromName($v): void {}
+        public function setSubject($v): void {}
+        public function setBody($v): void {}
+        public function setAttachment($path, $name = ''): void {}
+        public function send(): bool { return true; }
     }
 
     /** Von REDCap global definierte Funktionen. */
     function redirect(string $url): void {}
+    /** @return array<string, string> */
+    function parseEnum($enum) { return []; }
+    function label_decode($s): string { return ''; }
 
     /** Von REDCap je nach Seite definierte Konstanten (in phpstan.neon als dynamisch markiert). */
     if (!defined('APP_PATH_WEBROOT')) define('APP_PATH_WEBROOT', '');

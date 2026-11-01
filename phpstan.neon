@@ -23,3 +23,8 @@ parameters:
         - PROJECT_ID
         - USERID
         - SUPER_USER
+    # Seiten-Dateien: $module stellt REDCap beim Einbinden bereit (ExternalModules/index.php).
+    ignoreErrors:
+        -
+            message: '#^Variable \$module might not be defined\.$#'
+            reportUnmatched: false

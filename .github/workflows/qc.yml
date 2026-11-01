@@ -85,4 +85,4 @@ jobs:
       - name: Analyse (Konfiguration in phpstan.neon)
         run: |
           "$(composer global config bin-dir --absolute --quiet)/phpstan" --version
-          "$(composer global config bin-dir --absolute --quiet)/phpstan" analyse --no-progress --error-format=github --memory-limit=1G
+          "$(composer global config bin-dir --absolute --quiet)/phpstan" analyse --no-progress --error-format=table --memory-limit=1G
