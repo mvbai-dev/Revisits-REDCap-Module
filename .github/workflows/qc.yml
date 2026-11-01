@@ -1,0 +1,74 @@
+# Qualitätskontrolle für dieses REDCap-Modul (siehe CLAUDE.md).
+# Läuft bei jedem Push und Pull Request; rot = nicht übernehmen.
+name: QC
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  php-lint:
+    name: PHP-Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: php -l auf allen PHP-Dateien
+        run: |
+          php --version | head -1
+          status=0
+          while IFS= read -r -d '' f; do
+            php -l "$f" >/dev/null 2>err.txt || { echo "::error file=$f::$(cat err.txt)"; status=1; }
+          done < <(git ls-files -z '*.php')
+          exit $status
+
+  netzdetails:
+    name: Keine Netzdetails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Dateien prüfen
+        run: |
+          status=0
+          while IFS= read -r -d '' f; do
+            if out=$(.githooks/check-netzdetails.sh < "$f"); then :; else
+              echo "::error file=$f::Netzdetails gefunden – durch Platzhalter ersetzen"; echo "$out"; status=1
+            fi
+          done < <(git ls-files -z | grep -zv '^\.githooks/')
+          exit $status
+      - name: Commit-Messages prüfen
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE" ]; then range="$BASE..HEAD"
+          elif [ -n "$BEFORE" ] && ! echo "$BEFORE" | grep -qE '^0+$' && git cat-file -e "$BEFORE" 2>/dev/null; then range="$BEFORE..HEAD"
+          else range="HEAD~1..HEAD"; git rev-parse -q --verify HEAD~1 >/dev/null || range="HEAD"; fi
+          echo "Prüfe Commits: $range"
+          if out=$(git log --format=%B "$range" | .githooks/check-netzdetails.sh); then echo "ok"; else
+            echo "::error::Netzdetails in Commit-Messages"; echo "$out"; exit 1
+          fi
+
+  gitleaks:
+    name: Keine Geheimnisse (gitleaks)
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.21.2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks installieren (Version fest, Prüfsumme geprüft)
+        run: |
+          base=https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION
+          tgz=gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz
+          curl -sSfLO "$base/$tgz"
+          curl -sSfLO "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep " $tgz\$" gitleaks_${GITLEAKS_VERSION}_checksums.txt | sha256sum -c -
+          tar xzf "$tgz" gitleaks
+      - name: Gesamte Git-Historie scannen
+        run: ./gitleaks git --redact --verbose --exit-code 1 .

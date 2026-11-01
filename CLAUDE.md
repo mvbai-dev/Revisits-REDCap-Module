@@ -18,6 +18,7 @@ Eine Änderung ist erst fertig, wenn:
 2. `php -l` für alle geänderten PHP-Dateien fehlerfrei ist,
 3. das **Sicherheitsreview** (unten) für die Änderung durchlaufen und der README-Abschnitt **„Sicherheit“** aktualisiert ist,
 4. der Diff klein und auf ein Thema beschränkt ist.
+5. die CI auf GitHub (`.github/workflows/qc.yml`: PHP-Syntax, Netzdetails, gitleaks) grün ist.
 
 ## Sicherheitsreview (Pflicht bei neuen Modulen und jeder Funktionsänderung)
 
