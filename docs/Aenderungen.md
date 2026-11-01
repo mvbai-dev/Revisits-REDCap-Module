@@ -643,10 +643,6 @@ Beschränkung auf Datumsfelder.
 - Bezüge auf feste Instanznummern in der Projektlogik (`[feld][1]`, Bedingungen,
   Reportfilter) zeigen nach dem Umsortieren auf andere Visiten; vor der Aktivierung
   klären (README).
-- Zu prüfen: Das Framework füllt die Auswahl für `"validation": "date"` mit
-  `element_validation_type LIKE 'date_%'`. Datum/Zeit-Felder (`datetime_*`) würden
-  dann im Dialog gar nicht angeboten, obwohl `reorder.php` sie verarbeitet. Bisher
-  nur im Code gelesen, nicht im Dialog nachgeprüft.
 - `redcap_ehr_resource_instances` (EHR-Anbindung) und
   `redcap_project_migration_files` werden nicht umnummeriert.
 - Feldhistorie: Ein Textwert, der selbst einen Zeilenumbruch gefolgt von
