@@ -34,6 +34,13 @@ Jeder Commit, der PHP-Code des Moduls ändert (nicht `tests/`, nicht `phpstan/`)
 
 Braucht eine Änderung kein Review (Tippfehler, Kommentar), dann `Sicherheitsreview: nicht nötig (<Grund>)`. Der Vermerk belegt, dass das Review stattfand; er ersetzt es nicht.
 
+## Wenn Hook oder CI ablehnen
+
+- Nach jedem Push den CI-Status abfragen (`gh run list`) und das Ergebnis in der Sitzung melden.
+- Bei einer Ablehnung die **Ursache beheben**, nie die Prüfung umgehen: kein `--no-verify` außer bei belegten Fehlalarmen (dann in der Sitzung melden), keine Befunde per `ignoreErrors` wegdrücken, kein „Sicherheitsreview: nicht nötig“ ohne zutreffenden Grund. Fehlt das Review, das Review machen.
+- Korrekturen als **neuer Commit**, die Historie nicht umschreiben.
+- Braucht die Korrektur eine fachliche Entscheidung, nachfragen statt selbst festlegen.
+
 ## Sicherheitsreview (Pflicht bei neuen Modulen und jeder Funktionsänderung)
 
 Jeden Punkt gegen den echten REDCap-Quellcode bzw. per Test prüfen, nicht aus dem Gedächtnis beantworten:
