@@ -86,3 +86,12 @@ jobs:
         run: |
           "$(composer global config bin-dir --absolute --quiet)/phpstan" --version
           "$(composer global config bin-dir --absolute --quiet)/phpstan" analyse --no-progress --error-format=table --memory-limit=1G
+
+  unit:
+    name: Unit-Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit-Tests ohne REDCap (tests/unit/run.php)
+        run: |
+          if [ -f tests/unit/run.php ]; then php tests/unit/run.php; else echo "Keine Unit-Tests in diesem Repo."; fi

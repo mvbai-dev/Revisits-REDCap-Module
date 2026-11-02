@@ -17,8 +17,9 @@ Eine Änderung ist erst fertig, wenn:
 1. sie auf einem **Testserver** getestet wurde (nie gegen Produktiv- oder Patientendaten), mit Testfall und Ergebnis kurz notiert,
 2. `php -l` für alle geänderten PHP-Dateien fehlerfrei ist,
 3. das **Sicherheitsreview** (unten) für die Änderung durchlaufen und der README-Abschnitt **„Sicherheit“** aktualisiert ist,
-4. der Diff klein und auf ein Thema beschränkt ist.
-5. die CI auf GitHub (`.github/workflows/qc.yml`: PHP-Syntax, Netzdetails, gitleaks, PHPStan) grün ist.
+4. der Diff klein und auf ein Thema beschränkt ist,
+5. die CI auf GitHub (`.github/workflows/qc.yml`: PHP-Syntax, Netzdetails, gitleaks, PHPStan, Unit-Tests) grün ist,
+6. die Tests grün sind und das Ergebnis **in der Sitzung gemeldet** ist: `~/scripts/redcap-sectests.sh <Modul>` (Unit-Tests ohne REDCap und, sofern vorhanden, Sicherheitstests gegen den Testserver, siehe `tests/security/README.md`). Jeder neue Sicherheitsbefund bekommt einen Testfall, der mit der alten Version fehlschlägt.
 
 ## PHPStan
 
