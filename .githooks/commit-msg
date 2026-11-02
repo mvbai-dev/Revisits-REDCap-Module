@@ -6,3 +6,6 @@ if ! out=$(grep -v '^#' "$1" | "$dir/check-netzdetails.sh"); then
   printf '%s\n' "$out" >&2
   exit 1
 fi
+
+# Review-Nachweis für PHP-Änderungen (siehe CLAUDE.md)
+"$dir/check-review-vermerk.py" --staged "$1" || exit 1

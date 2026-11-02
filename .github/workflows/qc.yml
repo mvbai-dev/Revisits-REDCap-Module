@@ -95,3 +95,23 @@ jobs:
       - name: Unit-Tests ohne REDCap (tests/unit/run.php)
         run: |
           if [ -f tests/unit/run.php ]; then php tests/unit/run.php; else echo "Keine Unit-Tests in diesem Repo."; fi
+
+  review-vermerk:
+    name: Review-Vermerk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: PHP-Änderungen haben einen Review-Nachweis (siehe CLAUDE.md)
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE" ]; then range="$BASE..HEAD"
+          elif [ -n "$BEFORE" ] && ! echo "$BEFORE" | grep -qE '^0+$' && git cat-file -e "$BEFORE" 2>/dev/null; then range="$BEFORE..HEAD"
+          else range="HEAD~1..HEAD"; git rev-parse -q --verify HEAD~1 >/dev/null || range="HEAD"; fi
+          echo "Prüfe Commits: $range"
+          commits=$(git rev-list --no-merges "$range")
+          if [ -z "$commits" ]; then echo "Keine Commits zu prüfen."; exit 0; fi
+          python3 .githooks/check-review-vermerk.py --commits $commits

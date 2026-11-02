@@ -25,6 +25,15 @@ Eine Änderung ist erst fertig, wenn:
 
 Statische Analyse auf Stufe 5 (`phpstan.neon`). REDCap selbst ist nicht im Repo (Lizenz); `phpstan/redcap-stubs.php` deklariert nur Namen und Signaturen der genutzten REDCap- und Framework-Teile. Nutzt das Modul eine **neue** REDCap-Methode oder -Eigenschaft, dort ergänzen, sonst meldet PHPStan „undefined method“. Befunde nicht per `ignoreErrors` wegdrücken, sondern beheben oder im Stub korrekt beschreiben.
 
+## Review-Nachweis (technisch geprüft)
+
+Jeder Commit, der PHP-Code des Moduls ändert (nicht `tests/`, nicht `phpstan/`), braucht einen Nachweis, sonst lehnt der `commit-msg`-Hook ab und die CI („Review-Vermerk“) wird rot:
+
+- eine Zeile `Sicherheitsreview: <Ergebnis>` in der Commit-Nachricht, z. B. `Sicherheitsreview: Rechte geprüft, redcap-sectests grün`, oder
+- eine inhaltliche Änderung im README-Abschnitt „Sicherheit“ im selben Commit.
+
+Braucht eine Änderung kein Review (Tippfehler, Kommentar), dann `Sicherheitsreview: nicht nötig (<Grund>)`. Der Vermerk belegt, dass das Review stattfand; er ersetzt es nicht.
+
 ## Sicherheitsreview (Pflicht bei neuen Modulen und jeder Funktionsänderung)
 
 Jeden Punkt gegen den echten REDCap-Quellcode bzw. per Test prüfen, nicht aus dem Gedächtnis beantworten:
