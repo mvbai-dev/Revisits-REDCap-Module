@@ -176,6 +176,10 @@ namespace {
         public function setSubject($v): void {}
         public function setBody($v): void {}
         public function setAttachment($path, $name = ''): void {}
+        /**
+         * Setzt bei Fehlern ErrorInfo.
+         * @phpstan-impure
+         */
         public function send(): bool { return true; }
     }
 

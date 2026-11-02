@@ -18,7 +18,11 @@ Eine Änderung ist erst fertig, wenn:
 2. `php -l` für alle geänderten PHP-Dateien fehlerfrei ist,
 3. das **Sicherheitsreview** (unten) für die Änderung durchlaufen und der README-Abschnitt **„Sicherheit“** aktualisiert ist,
 4. der Diff klein und auf ein Thema beschränkt ist.
-5. die CI auf GitHub (`.github/workflows/qc.yml`: PHP-Syntax, Netzdetails, gitleaks) grün ist.
+5. die CI auf GitHub (`.github/workflows/qc.yml`: PHP-Syntax, Netzdetails, gitleaks, PHPStan) grün ist.
+
+## PHPStan
+
+Statische Analyse auf Stufe 5 (`phpstan.neon`). REDCap selbst ist nicht im Repo (Lizenz); `phpstan/redcap-stubs.php` deklariert nur Namen und Signaturen der genutzten REDCap- und Framework-Teile. Nutzt das Modul eine **neue** REDCap-Methode oder -Eigenschaft, dort ergänzen, sonst meldet PHPStan „undefined method“. Befunde nicht per `ignoreErrors` wegdrücken, sondern beheben oder im Stub korrekt beschreiben.
 
 ## Sicherheitsreview (Pflicht bei neuen Modulen und jeder Funktionsänderung)
 
