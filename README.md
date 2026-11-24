@@ -285,6 +285,5 @@ Benutzer). Zusätzlich gibt es einen Eintrag pro Datumsfeld im Modul-Log.
 
 ## Lizenz
 
-Dem Original lag keine Lizenz bei. Vor einer Veröffentlichung oder Weitergabe
-über die Universität Leipzig hinaus muss das mit Christof Meigen geklärt werden.
-Dieses Repository ist deshalb privat.
+MIT-Lizenz, siehe [`LICENSE`](LICENSE). Originalfassung: Christof Meigen,
+Universität Leipzig; nachfolgende Änderungen: Marcel von Borzestowski.
